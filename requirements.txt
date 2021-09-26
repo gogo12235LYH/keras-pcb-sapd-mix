@@ -1,0 +1,7 @@
+Cython
+keras
+opencv-contrib-python
+Pillow
+progressbar2
+tensorflow==2.6.0
+tensorflow-addons

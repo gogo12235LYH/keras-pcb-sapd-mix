@@ -70,7 +70,8 @@ ground truth)， 後續訓練則選擇預測結果前三高來進行訓練時的
 1. MODE 可分為2大類，分別為 "FSN Top-1 與 Top-k 的 Stage 1 及 Stage 2 訓練模式" 及
    "只有 FSN Top-k 的訓練模式"，細分四種模式。
 2. 訓練影像解析度可由 PHI 來調整。
-3. 若使用單機多卡的訓練策略，MULTI_GPU = 1 (建議在非 Windows 平台使用)。
+3. ~~若使用單機多卡的訓練策略，MULTI_GPU = 1 (建議在非 Windows 平台使用)。~~
+(目前多卡訓練，餵資料待須將 Keras.Sequential 轉換為 tf.data)
 
 ```python
 MODE = 1  # MODE = 1: Stage One; MODE = 2: Stage Two; MODE = 3: Top-1 Weight; MODE = 4: Top-5 Weight.

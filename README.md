@@ -117,17 +117,18 @@ SUBNET_DEPTH = 4  # Depth of Head Subnetworks
 ```
 
 ### 2.4 損失函數
-分類問題透過 Focal Loss (FL) 進行損失值評估及學習，目前也在測試 QFL 中。輸出預選框則透過 IoU Loss 也就是重疊度損失，
-目前提供 IoU, GIoU 及 CIoU 選用。都採用 XLA 做加速。
+
+分類問題透過 Focal Loss (FL) 進行損失值評估及學習，目前也在測試 QFL 中。輸出預選框則透過 IoU Loss 也就是重疊度損失， 目前提供 IoU, GIoU 及 CIoU 選用。都採用 XLA 做加速。
 
 CIoU 方面提供 2 種重現 :
+
 1. 去除中心位置偏移問題，只保留長寬比之神奇版本。
 2. 透過 ground truth 的左上角座標為依據，亦可推算中心偏移之完整版本。
 
 ```python
 """ Model: Classification and Regression Loss """
-USING_QFL = 0           # Classification Loss: Quality Focal Loss
-IOU_LOSS = 'giou'       # Regression Loss: iou, giou, ciou, fciou
+USING_QFL = 0  # Classification Loss: Quality Focal Loss
+IOU_LOSS = 'giou'  # Regression Loss: iou, giou, ciou, fciou
 IOU_FACTOR = 1.0
 ```
 
@@ -167,9 +168,27 @@ Epoch 1/25
 
 ## 3. 評估-Evaluation
 
+透過 mean Average Precision (mAP) 評估模型預測效果，
+其中 mAP 為重疊度由 0.5 至 0.95 間隔 0.05 共 10 組 AP 所算得知平均值。
+
+### 3.1 模型輸出設定
+
+可設定提案數量(上限值為依據影像解析度為定，Ex: 使用 640 * 640 解析度之輸入影像， 
+依據每層特徵金字塔得出 80 * 80, 40 * 40, 20 * 20, 10 * 10, 5 * 5 
+各層面積累加可得 8525 之上限提案數量。)
+
+非極大值抑制(NMS)，目前提供 NMS，Soft-NMS 。
+
+```python
+""" Model Detections: NMS, Proposal setting """
+NMS = 1  # 1 for NMS, 2 for Soft-NMS
+NMS_TH = 0.5  # intersect of union threshold in same detections
+DETECTIONS = 1000  # detecting proposals
+```
+
 _待_
 
-Deep PCB:
+### 3.2 Deep PCB:
 似乎 Align 對於 小目標瑕疵 及 Binary影像 效果非常顯著。
 
 | Subnetworks | setting | mAP | AP.5 | AP.75 | AP.9 |
@@ -178,14 +197,13 @@ Deep PCB:
 | Mix | x1, gn | 0.7629 | 0.9802 | 0.8950 | 0.3861 |
 | Align | x2, ws + gn | 0.8293 | 0.9862 | 0.9415 | 0.5247 |
 
-PCB-Defect: 
+### 3.3 PCB-Defect:
 
 | Subnetworks | setting | mAP | AP.5 | AP.75 | AP.9 |
 | ------ |------ |------ |------ |------ |------ |
 | Std | x1 | 0.6891 | 0.9991 | 0.8346 | 0.1142 |
 | Mix | x1, gn | 0.7163 | 0.9995 | 0.8731 | 0.1641 |
 | Align | - | - | - | - | - |
-
 
 ## 4. 推論-Inference
 

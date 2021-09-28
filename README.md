@@ -10,7 +10,7 @@ moon: [LINK](http://etheses.lib.ntust.edu.tw/cgi-bin/gs32/gsweb.cgi?o=dstdcdr&s=
 ## :fire: To Do List :fire:
 
 1. 完成 README.md
-2. _資料集轉換 (tfds 建立)_ -> [build-tfds](https://github.com/gogo12235LYH/build-tfds) 
+2. ~~資料集轉換 (tfds 建立)~~ Done -> [build-tfds](https://github.com/gogo12235LYH/build-tfds) 
 4. 透過 tf.data 取代 keras.Sequence 來增加 GPU使用率
 
 ## 目錄

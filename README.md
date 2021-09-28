@@ -207,7 +207,13 @@ _待_
 
 ## 4. 推論-Inference
 
-_待_
+### Deep PCB 範例
+![image](https://github.com/gogo12235LYH/keras-pcb-sapd-mix/tree/master/fig/dpcb_temp.png)
+
+### PCB-Defect 範例
+![image](https://github.com/gogo12235LYH/keras-pcb-sapd-mix/tree/master/fig/pcbdd_temp_1.png)
+
+![image](https://github.com/gogo12235LYH/keras-pcb-sapd-mix/tree/master/fig/pcbdd_temp_2.png)
 
 ## 5. 參考-Reference
 

@@ -1,7 +1,6 @@
 # PCB Defect Detection Based on SAPD with Mix Subnetwork
 
-_此貢獻為記錄原始研究程式碼及數據成果，初始環境為 Ubuntu 18.04, Tensorflow 2.3.0_ :
-moon: [LINK](http://etheses.lib.ntust.edu.tw/cgi-bin/gs32/gsweb.cgi?o=dstdcdr&s=id=%22G0M10812020%22.&searchmode=basic)
+_此貢獻為記錄原始研究程式碼及數據成果，初始環境為 Ubuntu 18.04, Tensorflow 2.3.0_ :moon: [LINK](http://etheses.lib.ntust.edu.tw/cgi-bin/gs32/gsweb.cgi?o=dstdcdr&s=id=%22G0M10812020%22.&searchmode=basic)
 
 :heart: _目前即將更新為 Tensorflow 2.6.0_ :heart:
 
@@ -190,20 +189,20 @@ _待_
 ### 3.2 Deep PCB:
 似乎 Align 對於 小目標瑕疵 及 Binary影像 效果非常顯著。
 
-| Subnetworks | setting | mAP | AP.5 | AP.75 | AP.9 |
-| ------ |------ |------ |------ |------ |------ |
-| Std | x1 | 0.753 | 0.9751 | 0.8881 | 0.3518 |
-| Mix | x1, ws + gn | 0.7629 | 0.9802 | 0.8950 | 0.3861 |
-| Mix_v2 | x2, gn | 0.8253 | 0.9853 | 0.9338 | 0.5209 |
-| Align | x2, ws + gn | 0.8293 | 0.9862 | 0.9415 | 0.5247 |
+| subnetworks | backbone | setting | mAP | AP.5 | AP.75 | AP.9 |
+| ------ |------ |------ |------ |------ |------ | ------ |
+| Std    | R50 | x1         | 0.753  | 0.9751 | 0.8881 | 0.3518 |
+| Mix    | R50 |x1, ws + gn | 0.7629 | 0.9802 | 0.8950 | 0.3861 |
+| Mix_v2 | R50 |x2, gn      | 0.8253 | 0.9853 | 0.9338 | 0.5209 |
+| Align  | R50 |x2, ws + gn | 0.8293 | 0.9862 | 0.9415 | 0.5247 |
 
 ### 3.3 PCB-Defect:
 
-| Subnetworks | setting | mAP | AP.5 | AP.75 | AP.9 |
-| ------ |------ |------ |------ |------ |------ |
-| Std | x1 | 0.6891 | 0.9991 | 0.8346 | 0.1142 |
-| Mix | x1, ws + gn | 0.7163 | 0.9995 | 0.8731 | 0.1641 |
-| Align | - | - | - | - | - |
+| subnetworks | backbone | setting | mAP | AP.5 | AP.75 | AP.9 |
+| ------ |------ |------ |------ |------ |------ | ------ |
+| Std   | R50 | x1          | 0.6891 | 0.9991 | 0.8346 | 0.1142 |
+| Mix   | R50 | x1, ws + gn | 0.7163 | 0.9995 | 0.8731 | 0.1641 |
+| Align |  -  |-            | - | - | - | - |
 
 ## 4. 推論-Inference
 

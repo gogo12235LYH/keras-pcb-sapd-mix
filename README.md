@@ -10,8 +10,7 @@ moon: [LINK](http://etheses.lib.ntust.edu.tw/cgi-bin/gs32/gsweb.cgi?o=dstdcdr&s=
 ## :fire: To Do List :fire:
 
 1. 完成 README.md
-2. 上傳 由server訓練完畢之權重
-3. 資料集轉換 (tfds 建立) 
+2. 資料集轉換 (tfds 建立) 
 4. 透過 tf.data 取代 keras.Sequence 來增加 GPU使用率
 
 ## 目錄

@@ -1,4 +1,4 @@
-from generators.voc2 import PascalVocGenerator
+from generators.voc import PascalVocGenerator
 import tensorflow as tf
 from models import sapd
 from utils.eval import evaluate2

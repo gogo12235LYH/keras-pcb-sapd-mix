@@ -12,18 +12,12 @@ limitations under the License.
 """
 
 from generators.generator import Generator
-from utils.image import read_image_bgr
-
 import os
 import numpy as np
 from six import raise_from
-from PIL import Image
-
-try:
-    import xml.etree.cElementTree as ET
-except ImportError:
-    import xml.etree.ElementTree as ET
-
+import cv2
+import xml.etree.ElementTree as ET
+import config
 
 voc_classes = {
     'aeroplane': 0,
@@ -48,6 +42,42 @@ voc_classes = {
     'tvmonitor': 19
 }
 
+rand_crop_PCB_classes = {
+    'missing_hole': 0,
+    'mouse_bite': 1,
+    'open_circuit': 2,
+    'short': 3,
+    'spur': 4,
+    'spurious_copper': 5,
+}
+
+MixPCB_classes = {
+    'missing_hole': 0,
+    'mouse_bite': 1,
+    'open_circuit': 2,
+    'short': 3,
+    'spur': 4,
+    'spurious_copper': 5,
+}
+
+deepPCB_classes = {
+    'open': 0,  # open_circuit: 2
+    'short': 1,  # short: 3
+    'mouse_bite': 2,  # mouse_bite: 1
+    'spur': 3,  # spur: 4
+    'copper': 4,  # spurious_copper: 5
+    'pin_hole': 5,  # missing_hole: 0
+}
+
+r_deepPCB_classes = {
+    'open': 2,  # open_circuit: 2
+    'short': 3,  # short: 3
+    'mouse_bite': 1,  # mouse_bite: 1
+    'spur': 4,  # spur: 4
+    'copper': 5,  # spurious_copper: 5
+    'pin_hole': 0,  # missing_hole: 0
+}
+
 
 def _findNode(parent, name, debug_name=None, parse=None):
     if debug_name is None:
@@ -64,6 +94,19 @@ def _findNode(parent, name, debug_name=None, parse=None):
     return result
 
 
+dataset = {
+    'VOC': voc_classes,
+    'DPCB': deepPCB_classes,
+    'rPCB': rand_crop_PCB_classes
+}
+
+dataset_path = {
+    'VOC': r'../VOCdevkit/VOC2012+2007',
+    'DPCB': r'../DeepPCB_voc',
+    'rPCB': r'../PCB_DATASET_Random_Crop'
+}
+
+
 class PascalVocGenerator(Generator):
     """
     Generate data for a Pascal VOC dataset.
@@ -74,7 +117,6 @@ class PascalVocGenerator(Generator):
             self,
             data_dir,
             set_name,
-            classes=voc_classes,
             image_extension='.jpg',
             skip_truncated=False,
             skip_difficult=False,
@@ -93,9 +135,11 @@ class PascalVocGenerator(Generator):
         """
         self.data_dir = data_dir
         self.set_name = set_name
-        self.classes = classes
+        self.classes = dataset[config.DATASET]
+
         self.image_names = [l.strip().split(None, 1)[0] for l in
                             open(os.path.join(data_dir, 'ImageSets', 'Main', set_name + '.txt')).readlines()]
+
         self.image_extension = image_extension
         self.skip_truncated = skip_truncated
         self.skip_difficult = skip_difficult
@@ -147,15 +191,18 @@ class PascalVocGenerator(Generator):
         Compute the aspect ratio for an image with image_index.
         """
         path = os.path.join(self.data_dir, 'JPEGImages', self.image_names[image_index] + self.image_extension)
-        image = Image.open(path)
-        return float(image.width) / float(image.height)
+        image = cv2.imread(path)
+        h, w = image.shape[:2]
+        return float(w) / float(h)
 
     def load_image(self, image_index):
         """
         Load an image at the image_index.
         """
         path = os.path.join(self.data_dir, 'JPEGImages', self.image_names[image_index] + self.image_extension)
-        return read_image_bgr(path)
+        image = cv2.imread(path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        return image
 
     def __parse_annotation(self, element):
         """
@@ -213,3 +260,65 @@ class PascalVocGenerator(Generator):
             raise_from(ValueError('invalid annotations file: {}: {}'.format(filename, e)), None)
         except ValueError as e:
             raise_from(ValueError('invalid annotations file: {}: {}'.format(filename, e)), None)
+
+
+# if __name__ == '__main__':
+#     train_generator = PascalVocGenerator(
+#         'datasets/voc_trainval/VOC2007',
+#         'train',
+#         phi=0,
+#         skip_difficult=True,
+#         batch_size=1,
+#         misc_effect=None,
+#         visual_effect=None,
+#     )
+#     mean = [0.485, 0.456, 0.406]
+#     std = [0.229, 0.224, 0.225]
+#     anchors = train_generator.anchors
+#     for batch_inputs, batch_targets in train_generator:
+#         image = batch_inputs[0][0]
+#         image[..., 0] *= std[0]
+#         image[..., 1] *= std[1]
+#         image[..., 2] *= std[2]
+#         image[..., 0] += mean[0]
+#         image[..., 1] += mean[1]
+#         image[..., 2] += mean[2]
+#         image *= 255.
+#
+#         regression = batch_targets[0][0]
+#         valid_ids = np.where(regression[:, -1] == 1)[0]
+#         boxes = anchors[valid_ids]
+#         deltas = regression[valid_ids]
+#         class_ids = np.argmax(batch_targets[1][0][valid_ids], axis=-1)
+#         mean_ = [0, 0, 0, 0]
+#         std_ = [0.2, 0.2, 0.2, 0.2]
+#
+#         width = boxes[:, 2] - boxes[:, 0]
+#         height = boxes[:, 3] - boxes[:, 1]
+#
+#         x1 = boxes[:, 0] + (deltas[:, 0] * std_[0] + mean_[0]) * width
+#         y1 = boxes[:, 1] + (deltas[:, 1] * std_[1] + mean_[1]) * height
+#         x2 = boxes[:, 2] + (deltas[:, 2] * std_[2] + mean_[2]) * width
+#         y2 = boxes[:, 3] + (deltas[:, 3] * std_[3] + mean_[3]) * height
+#         for x1_, y1_, x2_, y2_, class_id in zip(x1, y1, x2, y2, class_ids):
+#             x1_, y1_, x2_, y2_ = int(x1_), int(y1_), int(x2_), int(y2_)
+#             cv2.rectangle(image, (x1_, y1_), (x2_, y2_), (0, 255, 0), 2)
+#             class_name = train_generator.labels[class_id]
+#             label = class_name
+#             ret, baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)
+#             cv2.rectangle(image, (x1_, y2_ - ret[1] - baseline), (x1_ + ret[0], y2_), (255, 255, 255), -1)
+#             cv2.putText(image, label, (x1_, y2_ - baseline), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+#         cv2.imshow('image', image.astype(np.uint8)[..., ::-1])
+#         cv2.waitKey(0)
+#         # 36864, 46080, 48384, 48960, 49104
+#         # if first_valid_id < 36864:
+#         #     stride = 8
+#         # elif 36864 <= first_valid_id < 46080:
+#         #     stride = 16
+#         # elif 46080 <= first_valid_id < 48384:
+#         #     stride = 32
+#         # elif 48384 <= first_valid_id < 48960:
+#         #     stride = 64
+#         # else:
+#         #     stride = 128
+#         pass

@@ -207,7 +207,7 @@ class VisualEffect:
 
 
 if __name__ == '__main__':
-    from generators.voc2 import PascalVocGenerator
+    from generators.voc import PascalVocGenerator
     import cv2
 
     train_generator = PascalVocGenerator(

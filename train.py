@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.python.keras.utils.data_utils import get_file
-from generators.voc2 import PascalVocGenerator
+from generators.voc import PascalVocGenerator
 from dataAugmentor.color_aug import VisualEffect
 from dataAugmentor.misc_aug import MiscEffect
 import tensorflow.keras as keras

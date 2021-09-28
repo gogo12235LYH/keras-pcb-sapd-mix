@@ -1,25 +1,10 @@
-"""
-Copyright 2017-2018 Fizyr (https://fizyr.com)
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
 import numpy as np
 import random
 import warnings
+import cv2
 from tensorflow import keras
-from utils.image import TransformParameters, adjust_transform_for_image, preprocess_image, apply_transform, resize_image
-from utils.anchor import guess_shapes, compute_locations, compute_interest_sizes
-from utils.transform import transform_aabb
+from utils import get_fm_shapes
+import config
 
 
 class Generator(keras.utils.Sequence):
@@ -29,73 +14,65 @@ class Generator(keras.utils.Sequence):
 
     def __init__(
             self,
-            transform_generator=None,
-            visual_effect_generator=None,
+            phi=0,
+            image_sizes=(512, 640, 768, 896, 1024, 1280, 1408),
+            misc_effect=None,
+            visual_effect=None,
             batch_size=1,
-            group_method='ratio',  # one of 'none', 'random', 'ratio'
+            group_method='random',  # one of 'none', 'random', 'ratio'
             shuffle_groups=True,
-            image_min_side=800,
-            image_max_side=1333,
-            transform_parameters=None,
-            compute_shapes=guess_shapes,
-            compute_locations=compute_locations,
-            compute_interest_sizes=compute_interest_sizes,
-            preprocess_image=preprocess_image,
             max_gt_boxes=100,
-            config=None
     ):
         """
         Initialize Generator object.
-        Args
-            transform_generator: A generator used to randomly transform images and annotations.
+        Args:
             batch_size: The size of the batches to generate.
             group_method: Determines how images are grouped together (defaults to 'ratio', one of ('none', 'random', 'ratio')).
             shuffle_groups: If True, shuffles the groups each epoch.
-            image_min_side: After resizing the minimum side of an image is equal to image_min_side.
-            image_max_side: If after resizing the maximum side is larger than image_max_side, scales down further so that the max side is equal to image_max_side.
-            transform_parameters: The transform parameters used for data augmentation.
-            compute_shapes: Function handler for computing the shapes of the pyramid for a given input.
-            compute_locations: Function handler for computing center point of grid cells in all feature map
-            compute_interest_sizes: Function handler for computing size limit for each location
-            preprocess_image: Function handler for preprocessing an image (scaling / normalizing) for passing through a network.
+            image_sizes:
         """
-        self.transform_generator = transform_generator
-        self.visual_effect_generator = visual_effect_generator
+        self.image_size = image_sizes[phi]
+        self.misc_effect = misc_effect
+        self.visual_effect = visual_effect
         self.batch_size = int(batch_size)
         self.group_method = group_method
         self.shuffle_groups = shuffle_groups
-        self.image_min_side = image_min_side
-        self.image_max_side = image_max_side
-        self.image_min_sides = (600, 700, 800, 900, 1000)
-        self.image_max_sides = (1000, 1166, 1333, 1500, 1666)
-        self.transform_parameters = transform_parameters or TransformParameters()
-        self.compute_shapes = compute_shapes
-        self.compute_locations = compute_locations
-        self.compute_interest_sizes = compute_interest_sizes
-        self.preprocess_image = preprocess_image
-        self.config = config
-        self.groups = None
-        self.current_index = 0
+        self.max_gt_boxes = max_gt_boxes
 
-        # Define groups
+        self.pyramid_levels = (3, 4, 5, 6, 7)
+        self.strides = [2 ** i for i in self.pyramid_levels]
+        self.fm_shapes = get_fm_shapes((self.image_size, self.image_size), self.pyramid_levels)
+
+        self.mean = [0.485, 0.456, 0.406]
+        self.std = [0.229, 0.224, 0.225]
+
+        # group the images in batch to handle
+        self.groups = None  # remove warning
         self.group_images()
 
         # Shuffle when initializing
         if self.shuffle_groups:
             random.shuffle(self.groups)
 
-        self.max_gt_boxes = max_gt_boxes
-
     def on_epoch_end(self):
         if self.shuffle_groups:
             random.shuffle(self.groups)
-        self.current_index = 0
 
     def size(self):
         """
         Size of the dataset.
         """
         raise NotImplementedError('size method not implemented')
+
+    def get_anchors(self):
+        """
+        loads the anchors from a txt file
+        """
+        with open(self.anchors_path) as f:
+            anchors = f.readline()
+        anchors = [float(x) for x in anchors.split(',')]
+        # (N, 2), wh
+        return np.array(anchors).reshape(-1, 2)
 
     def num_classes(self):
         """
@@ -161,7 +138,8 @@ class Generator(keras.utils.Sequence):
 
         return annotations_group
 
-    def filter_annotations(self, image_group, annotations_group, group):
+    @staticmethod
+    def filter_annotations(image_group, annotations_group, group):
         """
         Filter annotations by removing those that are outside of the image bounds or whose width/height < 0.
         """
@@ -188,15 +166,15 @@ class Generator(keras.utils.Sequence):
                 ))
                 for k in annotations_group[index].keys():
                     annotations_group[index][k] = np.delete(annotations[k], invalid_indices, axis=0)
-            if annotations['bboxes'].shape[0] == 0:
-                warnings.warn('Image with id {} (shape {}) contains no valid boxes before transform'.format(
-                    group[index],
-                    image.shape,
-                ))
-
+            # if annotations['bboxes'].shape[0] == 0:
+            #     warnings.warn('Image with id {} (shape {}) contains no valid boxes before transform'.format(
+            #         group[index],
+            #         image.shape,
+            #     ))
         return image_group, annotations_group
 
-    def clip_transformed_annotations(self, image_group, annotations_group, group):
+    @staticmethod
+    def clip_transformed_annotations(image_group, annotations_group):
         """
         Filter annotations by removing those that are outside of the image bounds or whose width/height < 0.
         """
@@ -216,8 +194,8 @@ class Generator(keras.utils.Sequence):
             annotations['bboxes'][:, 3] = np.clip(annotations['bboxes'][:, 3], 1, image_height - 1)
             # test x2 < x1 | y2 < y1 | x1 < 0 | y1 < 0 | x2 <= 0 | y2 <= 0 | x2 >= image.shape[1] | y2 >= image.shape[0]
             small_indices = np.where(
-                (annotations['bboxes'][:, 2] - annotations['bboxes'][:, 0] < 15) |
-                (annotations['bboxes'][:, 3] - annotations['bboxes'][:, 1] < 15)
+                (annotations['bboxes'][:, 2] - annotations['bboxes'][:, 0] < 3) |
+                (annotations['bboxes'][:, 3] - annotations['bboxes'][:, 1] < 3)
             )[0]
 
             # delete invalid indices
@@ -225,14 +203,8 @@ class Generator(keras.utils.Sequence):
                 for k in annotations_group[index].keys():
                     annotations_group[index][k] = np.delete(annotations[k], small_indices, axis=0)
 
-            if annotations_group[index]['bboxes'].shape[0] != 0:
-                filtered_image_group.append(image)
-                filtered_annotations_group.append(annotations_group[index])
-            else:
-                warnings.warn('Image with id {} (shape {}) contains no valid boxes after transform'.format(
-                    group[index],
-                    image.shape,
-                ))
+            filtered_image_group.append(image)
+            filtered_annotations_group.append(annotations_group[index])
 
         return filtered_image_group, filtered_annotations_group
 
@@ -242,13 +214,13 @@ class Generator(keras.utils.Sequence):
         """
         return [self.load_image(image_index) for image_index in group]
 
+    # Augmentation method
     def random_visual_effect_group_entry(self, image, annotations):
         """
         Randomly transforms image and annotation.
         """
-        visual_effect = next(self.visual_effect_generator)
         # apply visual effect
-        image = visual_effect(image)
+        image = self.visual_effect(image)
         return image, annotations
 
     def random_visual_effect_group(self, image_group, annotations_group):
@@ -257,7 +229,7 @@ class Generator(keras.utils.Sequence):
         """
         assert (len(image_group) == len(annotations_group))
 
-        if self.visual_effect_generator is None:
+        if self.visual_effect is None:
             # do nothing
             return image_group, annotations_group
 
@@ -269,50 +241,30 @@ class Generator(keras.utils.Sequence):
 
         return image_group, annotations_group
 
-    def random_transform_group_entry(self, image, annotations, transform=None):
+    def random_misc_group_entry(self, image, annotations):
         """
         Randomly transforms image and annotation.
         """
-
         # randomly transform both image and annotations
-        if transform is not None or self.transform_generator:
-            if transform is None:
-                transform = adjust_transform_for_image(next(self.transform_generator), image,
-                                                       self.transform_parameters.relative_translation)
-
-            # apply transformation to image
-            image = apply_transform(transform, image, self.transform_parameters)
-
-            # Transform the bounding boxes in the annotations.
-            annotations['bboxes'] = annotations['bboxes'].copy()
-            for index in range(annotations['bboxes'].shape[0]):
-                annotations['bboxes'][index, :] = transform_aabb(transform, annotations['bboxes'][index, :])
-
+        image, annotations = self.misc_effect(image, annotations)
         return image, annotations
 
-    def random_transform_group(self, image_group, annotations_group):
+    def random_misc_group(self, image_group, annotations_group):
         """
         Randomly transforms each image and its annotations.
         """
 
         assert (len(image_group) == len(annotations_group))
 
+        if self.misc_effect is None:
+            return image_group, annotations_group
+
         for index in range(len(image_group)):
             # transform a single group entry
-            image_group[index], annotations_group[index] = self.random_transform_group_entry(image_group[index],
-                                                                                             annotations_group[index])
+            image_group[index], annotations_group[index] = self.random_misc_group_entry(image_group[index],
+                                                                                        annotations_group[index])
 
         return image_group, annotations_group
-
-    def resize_image(self, image):
-        """
-        Resize an image using image_min_side and image_max_side.
-        """
-        # random_side_index = random.randint(0, 4)
-        # return resize_image(image,
-        #                     min_side=self.image_min_sides[random_side_index],
-        #                     max_side=self.image_max_sides[random_side_index])
-        return resize_image(image, min_side=self.image_min_side, max_side=self.image_max_side)
 
     def preprocess_group_entry(self, image, annotations):
         """
@@ -320,17 +272,12 @@ class Generator(keras.utils.Sequence):
         """
 
         # preprocess the image
-        image = self.preprocess_image(image)
-
-        # resize image
-        image, image_scale = self.resize_image(image)
+        image, scale, offset_h, offset_w = self.preprocess_image(image)
 
         # apply resizing to annotations too
-        annotations['bboxes'] *= image_scale
-
-        # convert to the wanted keras floatx
-        image = keras.backend.cast_to_floatx(image)
-
+        annotations['bboxes'] *= scale
+        annotations['bboxes'][:, [0, 2]] += offset_w
+        annotations['bboxes'][:, [1, 3]] += offset_h
         return image, annotations
 
     def preprocess_group(self, image_group, annotations_group):
@@ -366,26 +313,10 @@ class Generator(keras.utils.Sequence):
         """
         Compute inputs for the network using an image_group.
         """
-        # get the max image shape
-        max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
-
-        # construct an image batch object
-        batch_images = np.zeros((len(image_group),) + max_shape, dtype=keras.backend.floatx())
-
-        # copy all images to the upper left part of the image batch object
-        for image_index, image in enumerate(image_group):
-            batch_images[image_index, :image.shape[0], :image.shape[1], :image.shape[2]] = image
-
-        # return batch_images
-
-        batch_gt_boxes = np.zeros((len(image_group), self.max_gt_boxes, 5), dtype=keras.backend.floatx())
+        batch_images = np.array(image_group).astype(np.float32)
+        batch_gt_boxes = np.zeros((len(image_group), self.max_gt_boxes, 5), dtype=np.float32)
         batch_num_gt_boxes = np.zeros((len(image_group), 1), dtype=np.int32)
-        # batch_fm_shapes = np.tile(self.fm_shapes[None], (len(image_group), 1, 1))
-
-        # get the max image shape
-        max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
-        fm_shapes = self.compute_shapes(max_shape, pyramid_levels=(3, 4, 5, 6, 7))
-        batch_fm_shapes = np.tile(fm_shapes[None], (len(image_group), 1, 1))
+        batch_fm_shapes = np.tile(self.fm_shapes[None], (len(image_group), 1, 1))
 
         # copy all images to the upper left part of the image batch object
         for image_index, (image, annotations) in enumerate(zip(image_group, annotations_group)):
@@ -396,292 +327,22 @@ class Generator(keras.utils.Sequence):
             gt_boxes = np.concatenate([boxes, labels[:, None]], axis=-1)
             batch_gt_boxes[image_index, :gt_boxes.shape[0]] = gt_boxes
             batch_num_gt_boxes[image_index, 0] = gt_boxes.shape[0]
-
-        # print(batch_images.shape, batch_gt_boxes.shape)
-        # print(batch_num_gt_boxes, batch_fm_shapes.shape)
         return [batch_images, batch_gt_boxes, batch_num_gt_boxes, batch_fm_shapes]
 
-    def compute_targets2(self, image_group, annotations_group):
-        """
-        Compute target outputs for the network using images and their annotations.
-        """
+    @staticmethod
+    def compute_targets(image_group):
         """
         Compute target outputs for the network using images and their annotations.
         """
 
         targets = [
             np.zeros((len(image_group),), dtype=np.float32),  # cls_loss
-            np.zeros((len(image_group),), dtype=np.float32),  # reg_loss
+            np.zeros((len(image_group),), dtype=np.float32),  # regr_loss
             np.zeros((len(image_group),), dtype=np.float32),  # feature_select_loss
         ]
-
         return targets
 
-    def compute_targets(self, image_group, annotations_group):
-        """
-        Compute target outputs for the network using images and their annotations.
-        """
-        INF = 1e8
-        assert (len(image_group) == len(
-            annotations_group)), "The length of the images and annotations need to be equal."
-        assert (len(annotations_group) > 0), "No data received to compute anchor targets for."
-        for annotations in annotations_group:
-            assert ('bboxes' in annotations), "Annotations should contain bboxes."
-            assert ('labels' in annotations), "Annotations should contain labels."
-
-        # get the max image shape
-        max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
-        feature_shapes = self.compute_shapes(max_shape, pyramid_levels=(3, 4, 5, 6, 7))
-
-        # list of np.array, [6400, 1600, 400, 100, 25]
-        locations = self.compute_locations(feature_shapes)
-        num_locations_each_layer = [location.shape[0] for location in locations]
-
-        # (m, 2) m=sum(fh*fw)
-        # (8525, 2)
-        locations = np.concatenate(locations, axis=0)
-
-        # (m, 2)
-        # (8525, 2)
-        interest_sizes = self.compute_interest_sizes(num_locations_each_layer)
-        batch_size = len(image_group)
-        num_classes = self.num_classes()
-
-        # (B, 8525, 6), (B, 8525, 7), (B, 8525, 2)
-        batch_regression = np.zeros((batch_size, locations.shape[0], 4 + 1 + 1), dtype=keras.backend.floatx())
-        batch_classification = np.zeros((batch_size, locations.shape[0], num_classes + 1), dtype=keras.backend.floatx())
-        batch_centerness = np.zeros((batch_size, locations.shape[0], 1 + 1), dtype=keras.backend.floatx())
-
-        # (m, ), (m, )
-        # (8525, ), (8525, )
-        cx, cy = locations[:, 0], locations[:, 1]
-        for batch_item_id, annotations in enumerate(annotations_group):
-            # (n, 4)
-            bboxes = annotations['bboxes']
-            assert bboxes.shape[0] != 0, 'There should be no such annotations going into training'
-
-            # (n, )
-            bbox_areas = (bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])
-
-            # (n, )
-            labels = annotations['labels']
-
-            # (m, 1) - (1, n) --> (m, n)
-            # (8525, n)
-            l = cx[:, None] - bboxes[:, 0][None]
-            t = cy[:, None] - bboxes[:, 1][None]
-
-            # (1, n) - (m, 1) --> (m, n)
-            # (8525, n)
-            r = bboxes[:, 2][None] - cx[:, None]
-            b = bboxes[:, 3][None] - cy[:, None]
-
-            # (m, n, 4)
-            # (8525, n, 4)
-            reg_targets = np.stack([l, t, r, b], axis=2)
-
-            # (m, n)
-            # (8525, n)
-            is_in_bbox = reg_targets.min(axis=2) > 0
-
-            # (m, n)
-            # (8525, n)
-            max_reg_target = reg_targets.max(axis=2)
-
-            # limit the regression range for each location
-            # (m, n)
-            # (8525, n)
-            is_cared_in_level = (max_reg_target >= interest_sizes[:, 0:1]) & (
-                        max_reg_target <= interest_sizes[:, 1:2])
-
-            # (8525, n)
-            # Note: bbox_areas.shape = (n,), bbox_areas[None].shape = (1, n)
-            locations_to_gt_areas = np.tile(bbox_areas[None], (len(locations), 1))
-            locations_to_gt_areas[~is_in_bbox] = INF
-            locations_to_gt_areas[~is_cared_in_level] = INF
-
-            # if there are still more than one objects for a location,
-            # we choose the one with minimal area
-            # (8525, )
-            locations_to_min_area = locations_to_gt_areas.min(axis=1)
-
-            pos_location_indices = np.where(locations_to_min_area != INF)[0]
-            if len(pos_location_indices) == 0:
-                warnings.warn('no pos locations')
-
-            # (m, )
-            # (8525, )
-            locations_to_min_area_ind = locations_to_gt_areas.argmin(axis=1)
-
-            # (8525, n, 4) --> (m, 4)
-            # (8525, 4)
-            reg_targets = reg_targets[range(len(locations)), locations_to_min_area_ind]
-
-            # (m, 2)
-            # (8525, 2)
-            left_right = reg_targets[:, [0, 2]]
-            top_bottom = reg_targets[:, [1, 3]]
-
-            # (m, )
-            # (8525, )
-            centerness = (left_right.min(axis=-1) / left_right.max(axis=-1)) * \
-                         (top_bottom.min(axis=-1) / top_bottom.max(axis=-1))
-            centerness_targets = np.sqrt(np.abs(centerness))
-
-            # (m, )
-            # (8525, )
-            location_labels = labels[locations_to_min_area_ind]
-            pos_location_labels = location_labels[pos_location_indices]
-
-            # Insert last axis 1 for positive
-            batch_regression[batch_item_id, :, :4] = reg_targets
-            batch_regression[batch_item_id, :, 4] = centerness_targets
-            batch_regression[batch_item_id, pos_location_indices, -1] = 1
-
-            batch_classification[batch_item_id, pos_location_indices, pos_location_labels] = 1
-            batch_classification[batch_item_id, pos_location_indices, -1] = 1
-
-            batch_centerness[batch_item_id, :, 0] = centerness_targets
-            batch_centerness[batch_item_id, pos_location_indices, -1] = 1
-
-        return [batch_regression, batch_classification, batch_centerness]
-
-        # For generator_test.py : show_annotations()
-        # return [locations, batch_regression, batch_classification, batch_centerness]
-
-    def compute_targets_test(self, image_group, annotations_group):
-        """
-        Compute target outputs for the network using images and their annotations.
-        """
-        INF = 1e8
-        assert (len(image_group) == len(
-            annotations_group)), "The length of the images and annotations need to be equal."
-        assert (len(annotations_group) > 0), "No data received to compute anchor targets for."
-        for annotations in annotations_group:
-            assert ('bboxes' in annotations), "Annotations should contain bboxes."
-            assert ('labels' in annotations), "Annotations should contain labels."
-
-        # get the max image shape
-        max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
-        feature_shapes = self.compute_shapes(max_shape, pyramid_levels=(3, 4, 5, 6, 7))
-
-        # list of np.array, [6400, 1600, 400, 100, 25]
-        locations = self.compute_locations(feature_shapes)
-        num_locations_each_layer = [location.shape[0] for location in locations]
-
-        # (m, 2) m=sum(fh*fw)
-        # (8525, 2)
-        locations = np.concatenate(locations, axis=0)
-
-        # (m, 2)
-        # (8525, 2)
-        interest_sizes = self.compute_interest_sizes(num_locations_each_layer)
-        batch_size = len(image_group)
-        num_classes = self.num_classes()
-
-        # (B, 8525, 6), (B, 8525, 7), (B, 8525, 2)
-        batch_regression = np.zeros((batch_size, locations.shape[0], 4 + 1 + 1), dtype=keras.backend.floatx())
-        batch_classification = np.zeros((batch_size, locations.shape[0], num_classes + 1), dtype=keras.backend.floatx())
-        batch_centerness = np.zeros((batch_size, locations.shape[0], 1 + 1), dtype=keras.backend.floatx())
-
-        # (m, ), (m, )
-        # (8525, ), (8525, )
-        cx, cy = locations[:, 0], locations[:, 1]
-        for batch_item_id, annotations in enumerate(annotations_group):
-            # (n, 4)
-            bboxes = annotations['bboxes']
-            assert bboxes.shape[0] != 0, 'There should be no such annotations going into training'
-
-            # (n, )
-            bbox_areas = (bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])
-
-            # (n, )
-            labels = annotations['labels']
-
-            # (m, 1) - (1, n) --> (m, n)
-            # (8525, n)
-            l = cx[:, None] - bboxes[:, 0][None]
-            t = cy[:, None] - bboxes[:, 1][None]
-
-            # (1, n) - (m, 1) --> (m, n)
-            # (8525, n)
-            r = bboxes[:, 2][None] - cx[:, None]
-            b = bboxes[:, 3][None] - cy[:, None]
-
-            # (m, n, 4)
-            # (8525, n, 4)
-            reg_targets = np.stack([l, t, r, b], axis=2)
-
-            # (m, n)
-            # (8525, n)
-            is_in_bbox = reg_targets.min(axis=2) > 0
-
-            # (m, n)
-            # (8525, n)
-            max_reg_target = reg_targets.max(axis=2)
-
-            # limit the regression range for each location
-            # (m, n)
-            # (8525, n)
-            is_cared_in_level = (max_reg_target >= interest_sizes[:, 0:1]) & (
-                        max_reg_target <= interest_sizes[:, 1:2])
-
-            # (8525, n)
-            # Note: bbox_areas.shape = (n,), bbox_areas[None].shape = (1, n)
-            locations_to_gt_areas = np.tile(bbox_areas[None], (len(locations), 1))
-            locations_to_gt_areas[~is_in_bbox] = INF
-            locations_to_gt_areas[~is_cared_in_level] = INF
-
-            # if there are still more than one objects for a location,
-            # we choose the one with minimal area
-            # (8525, )
-            locations_to_min_area = locations_to_gt_areas.min(axis=1)
-
-            pos_location_indices = np.where(locations_to_min_area != INF)[0]
-            if len(pos_location_indices) == 0:
-                warnings.warn('no pos locations')
-
-            # (m, )
-            # (8525, )
-            locations_to_min_area_ind = locations_to_gt_areas.argmin(axis=1)
-
-            # (8525, n, 4) --> (m, 4)
-            # (8525, 4)
-            reg_targets = reg_targets[range(len(locations)), locations_to_min_area_ind]
-
-            # (m, 2)
-            # (8525, 2)
-            left_right = reg_targets[:, [0, 2]]
-            top_bottom = reg_targets[:, [1, 3]]
-
-            # (m, )
-            # (8525, )
-            centerness = (left_right.min(axis=-1) / left_right.max(axis=-1)) * \
-                         (top_bottom.min(axis=-1) / top_bottom.max(axis=-1))
-            centerness_targets = np.sqrt(np.abs(centerness))
-
-            # (m, )
-            # (8525, )
-            location_labels = labels[locations_to_min_area_ind]
-            pos_location_labels = location_labels[pos_location_indices]
-
-            # Insert last axis 1 for positive
-            batch_regression[batch_item_id, :, :4] = reg_targets
-            batch_regression[batch_item_id, :, 4] = centerness_targets
-            batch_regression[batch_item_id, pos_location_indices, -1] = 1
-
-            batch_classification[batch_item_id, pos_location_indices, pos_location_labels] = 1
-            batch_classification[batch_item_id, pos_location_indices, -1] = 1
-
-            batch_centerness[batch_item_id, :, 0] = centerness_targets
-            batch_centerness[batch_item_id, pos_location_indices, -1] = 1
-
-        # return [batch_regression, batch_classification, batch_centerness]
-
-        # For generator_test.py : show_annotations()
-        return [locations, batch_regression, batch_classification, batch_centerness]
-
-    def compute_input_output(self, group):
+    def compute_inputs_targets(self, group, debug=False):
         """
         Compute inputs and target outputs for the network.
         """
@@ -697,27 +358,83 @@ class Generator(keras.utils.Sequence):
         # randomly apply visual effect
         image_group, annotations_group = self.random_visual_effect_group(image_group, annotations_group)
 
-        # randomly transform data
-        image_group, annotations_group = self.random_transform_group(image_group, annotations_group)
-
-        # check validity of annotations
-        image_group, annotations_group = self.clip_transformed_annotations(image_group, annotations_group, group)
-
-        if len(image_group) == 0:
-            return None, None
+        # randomly apply misc effect
+        image_group, annotations_group = self.random_misc_group(image_group, annotations_group)
 
         # perform preprocessing steps
         image_group, annotations_group = self.preprocess_group(image_group, annotations_group)
+
+        # check validity of annotations
+        image_group, annotations_group = self.clip_transformed_annotations(image_group, annotations_group)
+
+        assert len(image_group) != 0
+        assert len(image_group) == len(annotations_group)
 
         # compute network inputs
         inputs = self.compute_inputs(image_group, annotations_group)
 
         # compute network targets
-        targets = self.compute_targets2(image_group, annotations_group)
+        targets = self.compute_targets(image_group)
+
+        if debug:
+            return inputs, targets, annotations_group
 
         return inputs, targets
 
-    def compute_input_output_test(self, group):
+    def __len__(self):
+        """
+        Number of batches for generator.
+        """
+        return len(self.groups)
+
+    def __getitem__(self, index):
+        """
+        Keras sequence method for generating batches.
+        """
+        group = self.groups[index]
+        inputs, targets = self.compute_inputs_targets(group)
+        return inputs, targets
+
+    def preprocess_image(self, image):
+        image_height, image_width = image.shape[:2]
+
+        if image_height > image_width:
+            scale = self.image_size / image_height
+            resized_height = self.image_size
+            resized_width = int(image_width * scale)
+        else:
+            scale = self.image_size / image_width
+            resized_height = int(image_height * scale)
+            resized_width = self.image_size
+
+        image = cv2.resize(image, (resized_width, resized_height))
+        new_image = np.ones((self.image_size, self.image_size, 3), dtype=np.float32) * 128.
+        offset_h = (self.image_size - resized_height) // 2
+        offset_w = (self.image_size - resized_width) // 2
+        new_image[offset_h:offset_h + resized_height, offset_w:offset_w + resized_width] = image.astype(np.float32)
+
+        # image's channel is 'RGB'
+        if config.BACKBONE_TYPE == 'ResNetV1':
+            # Caffe
+            new_image = new_image[..., ::-1]  # RGB -> BGR
+            new_image -= [103.939, 116.779, 123.68]
+
+        elif config.BACKBONE_TYPE == 'ResNetV2':
+            new_image /= 127.5
+            new_image -= 1.
+
+        elif config.BACKBONE_TYPE == 'EffNet':
+            new_image = new_image
+
+        elif config.BACKBONE_TYPE in ['DenseNet', 'SEResNet']:
+            # Torch
+            new_image /= 255.
+            new_image -= self.mean
+            new_image /= self.std
+
+        return new_image, scale, offset_h, offset_w
+
+    def get_augmented_data(self, group):
         """
         Compute inputs and target outputs for the network.
         """
@@ -736,46 +453,19 @@ class Generator(keras.utils.Sequence):
         # randomly transform data
         # image_group, annotations_group = self.random_transform_group(image_group, annotations_group)
 
+        # randomly apply misc effect
+        # image_group, annotations_group = self.random_misc_group(image_group, annotations_group)
+
         # perform preprocessing steps
-        # image_group, annotations_group = self.preprocess_group(image_group, annotations_group)
+        image_group, annotations_group = self.preprocess_group(image_group, annotations_group)
 
-        # compute network inputs
-        inputs = self.compute_inputs(image_group)
+        # check validity of annotations
+        image_group, annotations_group = self.clip_transformed_annotations(image_group, annotations_group)
 
-        # compute network targets
-        targets = self.compute_targets_test(image_group, annotations_group)
+        assert len(image_group) != 0
+        assert len(image_group) == len(annotations_group)
 
-        return image_group, annotations_group, targets
+        # compute alphas for targets
+        self.compute_alphas_and_ratios(annotations_group)
 
-    def __len__(self):
-        """
-        Number of batches for generator.
-        """
-
-        return len(self.groups)
-
-    def __getitem__(self, index):
-        """
-        Keras sequence method for generating batches.
-        """
-        group = self.groups[self.current_index]
-        inputs, targets = self.compute_input_output(group)
-
-        while inputs is None:
-            current_index = self.current_index + 1
-            if current_index >= len(self.groups):
-                current_index = current_index % (len(self.groups))
-            self.current_index = current_index
-            group = self.groups[self.current_index]
-            inputs, targets = self.compute_input_output(group)
-
-        current_index = self.current_index + 1
-        if current_index >= len(self.groups):
-            current_index = current_index % (len(self.groups))
-
-        self.current_index = current_index
-        return inputs, targets
-
-        # For generator_test.py : show_annotations()
-        # image_group, annotation_group, targets = self.compute_input_output_test(group)
-        # return image_group, annotation_group, targets
+        return image_group, annotations_group

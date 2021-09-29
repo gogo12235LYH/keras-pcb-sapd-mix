@@ -187,6 +187,11 @@ DETECTIONS = 1000  # detecting proposals
 _待_
 
 ### 3.2 Deep PCB:
+
+* 訓練及評估影像大小: 640 * 640 ( PHI=1 )
+* Mix_v2: 輸入採用 1*1 的 kernel size，融合後與 1*1 kernel size 的 conv2d 強化學習效果。
+* Align: 使用位置計算 centerness 並與 1*1 kernel size 強化學習效果。
+
 似乎 Align 對於 小目標瑕疵 及 Binary影像 效果非常顯著。
 
 | subnetworks | backbone | setting | mAP | AP.5 | AP.75 | AP.9 |
@@ -198,11 +203,25 @@ _待_
 
 ### 3.3 PCB-Defect:
 
+* 訓練及評估影像大小: 640 * 640 ( PHI=1 )
+
 | subnetworks | backbone | setting | mAP | AP.5 | AP.75 | AP.9 |
 | ------ |------ |------ |------ |------ |------ | ------ |
 | Std   | R50 | x1          | 0.6891 | 0.9991 | 0.8346 | 0.1142 |
 | Mix   | R50 | x1, ws + gn | 0.7163 | 0.9995 | 0.8731 | 0.1641 |
 | Align |  -  |-            | - | - | - | - |
+
+### 3.4 VOC(僅參考，額外測試)
+
+* 訓練及評估影像大小: 640 * 640 ( PHI=1 )
+* 如果 改用 R101 或是 更高的解析度，理論上數據( mAP )會繼續提升。
+
+我在實驗過程使用 Mix 時，有出現過 AP.5 達 0.827 左右。
+
+| subnetworks | backbone | setting | mAP | AP.5 | AP.75 | AP.9 |
+| ------ |------ |------ |------ |------ |------ | ------ |
+| Std    | R50   | 50 epoch     | 0.5432 | 0.8004 | 0.5962 | 0.1927 |
+| Mix    | R50   | 50 epoch, gn | 0.5739 | 0.8160 | 0.6422 | 0.2413 |
 
 ## 4. 推論-Inference
 

@@ -40,6 +40,16 @@ def preprocess_data(sample):
     # true_label_count
     bbox_num = tf.shape(bbox[0])
 
+    max_bbox_pad = tf.stack(
+        [
+            tf.stack([tf.constant(0), 100 - bbox_num[0]], axis=0),
+            tf.constant([0, 0]),
+        ],
+        axis=0
+    )
+
+    bbox = tf.pad(bbox, max_bbox_pad, constant_values=0.)
+
     # fmaps_shape
     fmaps_shape = tf.constant(
         [[80, 80], [40, 40], [20, 20], [10, 10], [5, 5]],
@@ -56,13 +66,17 @@ if __name__ == '__main__':
 
     autotune = tf.data.AUTOTUNE
 
-    train, test = tfds.load(name="dpcb_db", split=["train", "test"], data_dir="D:/datasets/")
+    (train, test) = tfds.load(name="dpcb_db", split=["train", "test"], data_dir="D:/datasets/")
 
     train = train.map(preprocess_data, num_parallel_calls=autotune)
 
+    train = train.shuffle(8 * batch_size)
+
     train = train.padded_batch(
-        batch_size=batch_size, padding_values=(0.0, 1e-8, 0, 0), drop_remainder=True
+        batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True
     )
+
+    # train = train.batch(batch_size)
 
     train = train.prefetch(autotune)
 

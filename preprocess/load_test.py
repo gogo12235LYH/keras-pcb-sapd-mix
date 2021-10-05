@@ -69,3 +69,16 @@ if __name__ == '__main__':
     tfds.benchmark(train, batch_size=batch_size)
 
     tfds.benchmark(train, batch_size=batch_size)
+
+    #     [INFO] Batch size :  16
+    # ************ Summary ************
+    #
+    # Examples/sec (First included) 429.93 ex/sec (total: 992 ex, 2.31 sec)
+    # Examples/sec (First only) 138.36 ex/sec (total: 16 ex, 0.12 sec)
+    # Examples/sec (First excluded) 445.31 ex/sec (total: 976 ex, 2.19 sec)
+    #
+    # ************ Summary ************
+    #
+    # Examples/sec (First included) 454.25 ex/sec (total: 992 ex, 2.18 sec)
+    # Examples/sec (First only) 187.91 ex/sec (total: 16 ex, 0.09 sec)
+    # Examples/sec (First excluded) 465.06 ex/sec (total: 976 ex, 2.10 sec)

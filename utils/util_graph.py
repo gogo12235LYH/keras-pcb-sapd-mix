@@ -1,6 +1,41 @@
 import tensorflow as tf
 
 
+def feature_maps_shape_gen(phi=0, level=5):
+    _image_size = int(phi * 128) + 512
+    _strides = [int(2 ** (x + 3)) for x in range(level)]
+
+    shapes = []
+
+    for i in range(level):
+        fmap_shape = int(_image_size / _strides[i])
+        shapes.append([fmap_shape, fmap_shape])
+
+    return shapes
+
+
+def preprocess_image_input(image, mode="ResNetV1"):
+    if mode == 'ResNetV1':
+        # Caffe
+        image = image[..., ::-1]  # RGB -> BGR
+        image -= [103.939, 116.779, 123.68]
+
+    elif mode == 'ResNetV2':
+        image /= 127.5
+        image -= 1.
+
+    elif mode == 'EffNet':
+        image = image
+
+    elif mode in ['DenseNet', 'SEResNet']:
+        # Torch
+        image /= 255.
+        image -= [0.485, 0.456, 0.406]
+        image /= [0.229, 0.224, 0.225]
+
+    return image
+
+
 def resize_images(images, size, method='nearest', anti=False):
     methods = {
         'bilinear': tf.image.ResizeMethod.BILINEAR,
@@ -87,3 +122,7 @@ def trim_zero_padding_boxes(boxes):
     non_zeros = tf.cast(tf.reduce_sum(tf.abs(boxes), axis=-1), tf.bool)
     boxes = tf.boolean_mask(boxes, non_zeros)
     return boxes, non_zeros
+
+
+if __name__ == '__main__':
+    print(feature_maps_shape_gen(1, 5))

@@ -38,11 +38,11 @@ def preprocess_data(sample):
     )
 
     # true_label_count
-    bbox_num = tf.shape(bbox[0])
+    bbox_num = tf.shape(bbox)[0]
 
     max_bbox_pad = tf.stack(
         [
-            tf.stack([tf.constant(0), 100 - bbox_num[0]], axis=0),
+            tf.stack([tf.constant(0), 100 - bbox_num], axis=0),
             tf.constant([0, 0]),
         ],
         axis=0
@@ -56,7 +56,24 @@ def preprocess_data(sample):
         dtype=tf.int32
     )
 
-    return image, bbox, bbox_num, fmaps_shape
+    return image, bbox, bbox_num[None], fmaps_shape
+
+
+def inputs_targets(image, bbox, bbox_num, fmaps_shape):
+    inputs = {
+        "image_input": image,
+        "gt_boxes_input": bbox,
+        "true_label_count": bbox_num,
+        "fmaps_shape": fmaps_shape,
+    }
+
+    targets = [
+        tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
+        tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
+        tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
+    ]
+
+    return inputs, targets
 
 
 if __name__ == '__main__':
@@ -76,7 +93,7 @@ if __name__ == '__main__':
         batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True
     )
 
-    # train = train.batch(batch_size)
+    train = train.map(inputs_targets, num_parallel_calls=autotune)
 
     train = train.prefetch(autotune)
 

@@ -1,17 +1,19 @@
+import config
+import numpy as np
 import tensorflow as tf
+import tensorflow_datasets as tfds
+import tensorflow.keras as keras
+import tensorflow.keras.backend as k
 from tensorflow.python.keras.utils.data_utils import get_file
 from generators.voc import PascalVocGenerator
 from preprocess.color_aug import VisualEffect
 from preprocess.misc_aug import MiscEffect
-import tensorflow.keras as keras
-import tensorflow.keras.backend as k
 from eval.voc import Evaluate
 from models import SAPD
 from tensorflow.keras.callbacks import LearningRateScheduler
-import numpy as np
 from tensorflow_addons.optimizers import SGDW, AdamW
 from models.losses import model_loss
-import config
+from generators import load_test
 
 
 def _init():
@@ -108,14 +110,24 @@ def create_generators(batch_size=2,
     misc_effect = MiscEffect() if misc_aug else None
     visual_effect = VisualEffect() if visual_aug else None
 
-    train_generator_ = PascalVocGenerator(
-        path,
-        'trainval' if config.MixUp_AUG == 0 else 'trainval_mixup',
-        skip_difficult=True,
-        misc_effect=misc_effect,
-        visual_effect=visual_effect,
-        **common_args
+    # train_generator_ = PascalVocGenerator(
+    #     path,
+    #     'trainval' if config.MixUp_AUG == 0 else 'trainval_mixup',
+    #     skip_difficult=True,
+    #     misc_effect=misc_effect,
+    #     visual_effect=visual_effect,
+    #     **common_args
+    # )
+
+    autotune = tf.data.AUTOTUNE
+    (train, test) = tfds.load(name="dpcb_db", split=["train", "test"], data_dir="D:/datasets/")
+    train = train.map(load_test.preprocess_data, num_parallel_calls=autotune)
+    train = train.shuffle(8 * batch_size)
+    train = train.padded_batch(
+        batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True
     )
+    train = train.map(load_test.inputs_targets, num_parallel_calls=autotune)
+    train_generator_ = train.prefetch(autotune).repeat()
 
     validation_generator_ = PascalVocGenerator(
         path,

@@ -151,7 +151,7 @@ def create_generators(batch_size=2,
 def create_optimizer(opt_name, base_lr, m, decay):
     if opt_name == 'SGD':
         return keras.optimizers.SGD(
-            lr=base_lr,
+            learning_rate=base_lr,
             momentum=m,
             decay=decay,
             nesterov=config.USE_NESTEROV
@@ -159,7 +159,7 @@ def create_optimizer(opt_name, base_lr, m, decay):
 
     if opt_name == 'Adam':
         return keras.optimizers.Adam(
-            lr=base_lr
+            learning_rate=base_lr
         )
 
     if opt_name == 'SGDW':

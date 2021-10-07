@@ -470,7 +470,8 @@ def main():
 
     """ Multi GPU Accelerating"""
     if config.MULTI_GPU:
-        mirrored_strategy = tf.distribute.MirroredStrategy()
+        # mirrored_strategy = tf.distribute.MirroredStrategy()
+        mirrored_strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
         with mirrored_strategy.scope():
             model, pred_model = model_compile(stage, Model_Name, Optimizer)
     else:

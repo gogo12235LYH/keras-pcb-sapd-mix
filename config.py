@@ -18,9 +18,9 @@ DATABASE_PATH = _dataset_path[DATASET]
 """ Hyper-parameter setting """
 MODE = 1                # MODE = 1: Stage One; MODE = 2: Stage Two; MODE = 3: Top-1 Weight; MODE = 4: Top-5 Weight.
 EPOCHs = 50
-STEPs_PER_EPOCH = None  # steps in one epoch
+STEPs_PER_EPOCH = 100  # steps in one epoch
 EPOCHs_STAGE_ONE = int(EPOCHs * 0.5)
-BATCH_SIZE = 1          # Global Batch size
+BATCH_SIZE = 2          # Global Batch size
 NUM_CLS = 6
 PHI = 0                 # B0:(512, 512), B1:(640, 640), B2:(768, 768), B3:(896, 896), B4:(1024, 1024) ~ B7(1048, 1048)
 MULTI_GPU = 0
@@ -109,7 +109,7 @@ DATE = '20210921-'
 D_NAME = f'{DATASET}{MISC_AUG}{VISUAL_AUG}{MixUp_AUG}-'
 H_NAME = f'H{HEAD[0]}{HEAD_WS}{HEAD_GROUPS}F{FSN}-'
 O_NAME = f'{OPTIMIZER}'
-NAME = DATE + D_NAME + H_NAME + O_NAME
+NAME = DATE + D_NAME + H_NAME + O_NAME + f"E{EPOCHs}BS{BATCH_SIZE}B{PHI}R{BACKBONE}D{SUBNET_DEPTH}"
 
 
 """ Model Detections: NMS, Proposal setting """

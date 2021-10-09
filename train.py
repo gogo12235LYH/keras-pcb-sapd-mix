@@ -14,6 +14,7 @@ from tensorflow.keras.callbacks import LearningRateScheduler
 from tensorflow_addons.optimizers import SGDW, AdamW
 from models.losses import model_loss
 from generators import load_test
+from callbacks import create_callbacks
 
 
 def _init():
@@ -90,12 +91,13 @@ def load_weights(input_model, model_name):
                 print(f" Imagenet ... OK.")
 
 
-def create_generators(batch_size=2,
-                      phi=0,
-                      path=r'../VOCdevkit/VOC2012+2007',
-                      misc_aug=True,
-                      visual_aug=True
-                      ):
+def create_generators(
+        batch_size=2,
+        phi=0,
+        path=r'../VOCdevkit/VOC2012+2007',
+        misc_aug=True,
+        visual_aug=True
+):
     """
     Create generators for training and validation.
     Args
@@ -129,14 +131,6 @@ def create_generators(batch_size=2,
     train = train.map(load_test.inputs_targets, num_parallel_calls=autotune)
     train_generator_ = train.prefetch(autotune).repeat()
 
-    validation_generator_ = PascalVocGenerator(
-        path,
-        'val',
-        skip_difficult=True,
-        shuffle_groups=False,
-        **common_args
-    )
-
     test_generator_ = PascalVocGenerator(
         path,
         'test',
@@ -145,7 +139,7 @@ def create_generators(batch_size=2,
         **common_args
     )
 
-    return train_generator_, validation_generator_, test_generator_
+    return train_generator_, test_generator_
 
 
 def create_optimizer(opt_name, base_lr, m, decay):
@@ -180,244 +174,19 @@ def create_optimizer(opt_name, base_lr, m, decay):
     raise ValueError("[INFO] Got WRONG Optimizer name. PLZ CHECK again !!")
 
 
-class History(tf.keras.callbacks.Callback):
-    def __init__(self, wd_scheduler):
-        super(History, self).__init__()
-        self.lr = []
-        self.wd = []
-        self.wd_scheduler = wd_scheduler
-
-    def on_train_begin(self, logs=None):
-        self.lr = []
-        self.wd = []
-
-    def on_epoch_begin(self, epoch, logs=None):
-        lr = float(k.get_value(self.model.optimizer.lr))
-        k.set_value(self.model.optimizer.weight_decay, self.wd_scheduler(epoch))
-        wd = float(k.get_value(self.model.optimizer.weight_decay))
-        print(f"[INFO] From History Callback: EP:{epoch} LR: {lr}, WD: {wd}")
-
-    def on_epoch_end(self, epoch, logs=None):
-        self.lr.append(float(k.get_value(self.model.optimizer.lr)))
-        self.wd.append(float(k.get_value(self.model.optimizer.weight_decay)))
-
-
-def create_callbacks(pred_mod, test_gen, m_eval=0, tensorboard=0, tensorboard_path=None):
-    cbs = []
-    info_ = ''
-
-    if m_eval:
-        info_ = info_ + "Evaluation, "
-        cbs.append(
-            Evaluate(test_gen, pred_mod)
-        )
-
-    if tensorboard:
-        info_ = info_ + "Tensorboard "
-        # print("Tensorboard, ", end='')
-        cbs.append(
-            keras.callbacks.TensorBoard(
-                log_dir='{file_path}/logs'.format(file_path=tensorboard_path),
-                histogram_freq=0,
-                write_graph=True,
-                write_images=False,
-                profile_batch=config.BATCH_SIZE,
-                embeddings_freq=0,
-                embeddings_metadata=None
-            )
-        )
-
-    if config.LR_Scheduler == 0:
-        print(info_)
-        return cbs
-
-    if config.LR_Scheduler == 1:
-        if config.USING_WARMUP:
-            info_ = info_ + "Cosine-Decay + Warm-Up, "
-            # print("Cosine Decay + Warm Up, ", end='' if config.USING_HISTORY else None)
-            cbs.append(
-                cosine_decay3(
-                    initial_lr=config.BASE_LR,
-                    epochs=config.EPOCHs,
-                    warm_up=1,
-                    warm_up_epochs=config.WP_EPOCHs,
-                    alpha=config.ALPHA
-                )
-            )
-        else:
-            info_ = info_ + "Cosine-Decay, "
-            # print("Cosine Decay, ", end='' if config.USING_HISTORY else None)
-            cbs.append(
-                cosine_decay3(
-                    initial_lr=config.BASE_LR,
-                    epochs=config.EPOCHs,
-                    warm_up=0,
-                    warm_up_epochs=0,
-                    alpha=config.ALPHA
-
-                )
-            )
-
-    elif config.LR_Scheduler == 2:
-        info_ = info_ + "Cosine-Decay(RS), "
-        # print("Cosine Decay(RS), ", end='' if config.USING_HISTORY else None)
-        cbs.append(
-            cosine_decay_rs(
-                initial_lr=config.BASE_LR,
-                epochs=config.EPOCHs,
-                epoch_r=config.EPOCHs_RESTART,
-                alpha=config.ALPHA
-            )
-        )
-
-    if config.USING_HISTORY == 1:
-        info_ = info_ + "History"
-        # print("History")
-        h = History(
-            wd_scheduler=wd_cosine_decay3(
-                initial_lr=config.DECAY,
-                epochs=config.EPOCHs,
-                warm_up=config.USING_WARMUP,
-                warm_up_epochs=config.WP_EPOCHs,
-                alpha=config.ALPHA
-            )
-        )
-        cbs.append(h)
-
-    elif config.USING_HISTORY == 2:
-        info_ = info_ + "History(RS)"
-        # print("History(RS)")
-        h = History(
-            wd_scheduler=wd_cosine_decay_rs(
-                initial_lr=config.DECAY,
-                epochs=config.EPOCHs,
-                epoch_r=config.EPOCHs_RESTART,
-                alpha=config.ALPHA
-            )
-        )
-        cbs.append(h)
-
-    cbs.append(
-        keras.callbacks.EarlyStopping(
-            monitor='loss',
-            mode='min',
-            patience=3,
-            restore_best_weights=True,
-            verbose=1,
-        )
-    )
-    print(info_ + 'EarlyStopping,')
-    return cbs
-
-
-def wd_cosine_decay3(epochs, initial_lr=1e-5, warm_up=0, warm_up_epochs=0, alpha=0.):
-    eps = (epochs - warm_up_epochs) - 1 if warm_up else epochs
-    min_lr = config.WP_RATIO * initial_lr
-
-    def warm_up_lr(epoch):
-        decay = min_lr + (initial_lr - min_lr) * (epoch / warm_up_epochs)
-        print(f'-- [INFO] Warmup ({epoch + 1}/{warm_up_epochs}) WD : {decay}')
-        return decay
-
-    def cosine_decay_lr(epoch):
-        ep = (epoch - warm_up_epochs) if warm_up else epoch
-        cosine = 0.5 * (1 + np.cos(np.pi * ep / eps))
-        cosine = (1 - alpha) * cosine + alpha
-        decay = initial_lr * cosine
-        print(f'-- [INFO] Cosine-Decay WD : {decay}')
-        return decay
-
-    def lr_scheduler(epoch):
-        decay = warm_up_lr(epoch) if warm_up and epoch < warm_up_epochs else cosine_decay_lr(epoch)
-        return decay
-
-    return lr_scheduler
-
-
-def cosine_decay3(epochs, initial_lr=1e-4, warm_up=1, warm_up_epochs=5, alpha=0.):
-    eps = (epochs - warm_up_epochs) - 1 if warm_up else epochs
-    min_lr = config.WP_RATIO * initial_lr
-
-    def warm_up_lr(epoch):
-        decay = min_lr + (initial_lr - min_lr) * (epoch / warm_up_epochs)
-        print(f'-- [INFO] Warmup ({epoch + 1}/{warm_up_epochs}) LR : {decay}')
-        return decay
-
-    def cosine_decay_lr(epoch):
-        ep = (epoch - warm_up_epochs) if warm_up else epoch
-        cosine = 0.5 * (1 + np.cos(np.pi * ep / eps))
-        cosine = (1 - alpha) * cosine + alpha
-        decay = initial_lr * cosine
-        print(f'-- [INFO] Cosine-Decay LR : {decay}')
-        return decay
-
-    def lr_scheduler(epoch, lr):
-        decay = warm_up_lr(epoch) if warm_up and epoch < warm_up_epochs else cosine_decay_lr(epoch)
-        return decay
-
-    return LearningRateScheduler(lr_scheduler)
-
-
-def cosine_decay_rs(epochs, epoch_r=25, initial_lr=1e-4, alpha=0.02):
-    def cosine_decay_lr(epoch):
-
-        if epoch >= epoch_r:
-            eps = epoch_r * 3
-            ep = epoch - epoch_r
-            lr = initial_lr * config.RS_RATIO
-
-        else:
-            ep = epoch
-            eps = epoch_r
-            lr = initial_lr
-
-        cosine = 0.5 * (1 + np.cos(np.pi * ep / eps))
-        cosine = (1 - alpha) * cosine + alpha
-        decay = lr * cosine
-        print(f'-- [INFO] Cosine-Decay LR : {decay}')
-        return decay
-
-    def lr_scheduler(epoch, lr):
-        decay = cosine_decay_lr(epoch)
-        return decay
-
-    return LearningRateScheduler(lr_scheduler)
-
-
-def wd_cosine_decay_rs(epochs, epoch_r=25, initial_lr=1e-4, alpha=0.02):
-    def cosine_decay_lr(epoch):
-
-        if epoch >= epoch_r:
-            eps = epoch_r * 3
-            ep = epoch - epoch_r
-            lr = initial_lr * config.RS_RATIO
-
-        else:
-            ep = epoch
-            eps = epoch_r
-            lr = initial_lr
-
-        cosine = 0.5 * (1 + np.cos(np.pi * ep / eps))
-        cosine = (1 - alpha) * cosine + alpha
-        decay = lr * cosine
-        print(f'-- [INFO] Cosine-Decay WD : {decay}')
-        return decay
-
-    def lr_scheduler(epoch):
-        decay = cosine_decay_lr(epoch)
-        return decay
-
-    return lr_scheduler
-
-
 def create_model_name(info_, epochs_, phi_, backbone_, depth_, batch_):
     return f"{info_}-E{epochs_}BS{batch_}B{phi_}R{backbone_}D{depth_}"
 
 
 def model_compile(info, model_name, optimizer):
     print(f"{info} Creating Model... ")
-    model_, pred_model_ = SAPD(soft=True if config.MODE in [2, 4] else False, num_cls=config.NUM_CLS,
-                               depth=config.SUBNET_DEPTH, resnet=config.BACKBONE, freeze_bn=config.FREEZE_BN)
+    model_, pred_model_ = SAPD(
+        soft=True if config.MODE in [2, 4] else False,
+        num_cls=config.NUM_CLS,
+        depth=config.SUBNET_DEPTH,
+        resnet=config.BACKBONE,
+        freeze_bn=config.FREEZE_BN
+    )
 
     print(f"{info} Loading Weight... ", end='')
     load_weights(input_model=model_, model_name=model_name)
@@ -449,18 +218,8 @@ def main():
         decay=config.DECAY
     )
 
-    """ Output Weight Name """
-    Model_Name = create_model_name(
-        info_=config.NAME,
-        epochs_=config.EPOCHs,
-        phi_=config.PHI,
-        backbone_=config.BACKBONE,
-        depth_=config.SUBNET_DEPTH,
-        batch_=config.BATCH_SIZE
-    )
-
     print(f"{stage} Creating Generators... ")
-    train_generator, val_generator, test_generator = create_generators(
+    train_generator, test_generator = create_generators(
         batch_size=config.BATCH_SIZE,
         phi=config.PHI,
         misc_aug=config.MISC_AUG,
@@ -473,17 +232,17 @@ def main():
         # mirrored_strategy = tf.distribute.MirroredStrategy()
         mirrored_strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
         with mirrored_strategy.scope():
-            model, pred_model = model_compile(stage, Model_Name, Optimizer)
+            model, pred_model = model_compile(stage, config.NAME, Optimizer)
     else:
-        model, pred_model = model_compile(stage, Model_Name, Optimizer)
+        model, pred_model = model_compile(stage, config.NAME, Optimizer)
 
-    print(f"{stage} Model Name : {Model_Name}")
+    print(f"{stage} Model Name : {config.NAME}")
 
     print(f"{stage} Creating Callbacks... ", end='')
     callbacks = create_callbacks(
+        config=config,
         pred_mod=pred_model,
         test_gen=test_generator,
-        m_eval=config.EVALUATION,
     )
 
     """ Training, the batch size of generator is global batch size. """
@@ -498,7 +257,7 @@ def main():
     )
 
     """ Save model's weights """
-    save_model_name = Model_Name + "-soft" if config.MODE == 2 else Model_Name
+    save_model_name = config.NAME + "-soft" if config.MODE == 2 else config.NAME
     print(f"{stage} Saving Model Weights : {save_model_name}.h5 ... ")
     model.save_weights(f'{save_model_name}.h5')
 

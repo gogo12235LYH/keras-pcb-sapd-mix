@@ -58,20 +58,7 @@ def create_callbacks(
             )
         )
 
-    # if config.LR_Scheduler == 1:
-    #     info_ = info_ + "Cosine-Decay, "
-    #     cbs.append(
-    #         lr_cosine_decay(
-    #             initial_lr=config.BASE_LR,
-    #             epochs=config.EPOCHs,
-    #             warm_up=config.USING_WARMUP,
-    #             warm_up_epochs=config.WP_EPOCHs,
-    #             warm_up_ratio=config.WP_RATIO,
-    #             alpha=config.ALPHA
-    #         )
-    #     )
-
-    if config.USING_HISTORY == 1:
+    if config.USING_HISTORY:
         info_ = info_ + "History, "
 
         _decay_dict = {

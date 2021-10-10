@@ -65,6 +65,30 @@ def _fmap_shapes(phi: int = 0, level: int = 5):
     return shapes
 
 
+def random_flip_horizontal(image, boxes):
+    """Flips image and boxes horizontally with 50% chance
+
+    Arguments:
+      image: A 3-D tensor of shape `(height, width, channels)` representing an
+        image.
+      boxes: A tensor with shape `(num_boxes, 4)` representing bounding boxes,
+        having normalized coordinates.
+
+    Returns:
+      Randomly flipped image and boxes
+    """
+    if tf.random.uniform(()) > 0.5:
+        image = tf.image.flip_left_right(image)
+        boxes = tf.stack(
+            [1 - boxes[:, 2],
+             boxes[:, 1],
+             1 - boxes[:, 0],
+             boxes[:, 3]]
+            , axis=-1
+        )
+    return image, boxes
+
+
 def preprocess_data(phi=0, mode="ResNetV1", max_bboxes=100, padding_value=0.):
     """Applies preprocessing step to a single sample
 
@@ -84,6 +108,7 @@ def preprocess_data(phi=0, mode="ResNetV1", max_bboxes=100, padding_value=0.):
         class_id = tf.cast(sample["objects"]["label"], dtype=tf.float32)
 
         # TODO: data augmentation
+        image, bbox = random_flip_horizontal(image, bbox)
 
         image, scale, offset_h, offset_w = _preprocess_image(
             image=image,

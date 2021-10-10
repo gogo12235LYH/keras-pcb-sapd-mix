@@ -1,6 +1,40 @@
 import tensorflow as tf
 
 
+@tf.function
+def resize_images_pipeline(image, size):
+    image_height, image_width = tf.shape(image)[1], tf.shape(image)[2]
+
+    if image_height > image_width:
+        scale = tf.cast((size / image_height), dtype=tf.float32)
+        resized_height = size
+        resized_width = (tf.cast(image_width, dtype=tf.float32) * scale)
+        resized_width = tf.cast(resized_width, dtype=tf.int32)
+
+    else:
+        scale = tf.cast((size / image_width), dtype=tf.float32)
+        resized_width = size
+        resized_height = (tf.cast(image_height, dtype=tf.float32) * scale)
+        resized_height = tf.cast(resized_height, dtype=tf.int32)
+
+    image = tf.image.resize(image, (resized_height, resized_width))
+    offset_h = (size - resized_height) // 2
+    offset_w = (size - resized_width) // 2
+
+    # (h, w, c)
+    pad = tf.stack(
+        [
+            tf.stack([offset_h, offset_h], axis=0),
+            tf.stack([offset_w, offset_w], axis=0),
+            tf.constant([0, 0]),
+        ],
+        axis=0
+    )
+    image = tf.pad(image, pad, constant_values=128.)
+
+    return image, scale, offset_h, offset_h
+
+
 def feature_maps_shape_gen(phi=0, level=5):
     _image_size = int(phi * 128) + 512
     _strides = [int(2 ** (x + 3)) for x in range(level)]
@@ -14,6 +48,7 @@ def feature_maps_shape_gen(phi=0, level=5):
     return shapes
 
 
+@tf.function
 def preprocess_image_input(image, mode="ResNetV1"):
     if mode == 'ResNetV1':
         # Caffe

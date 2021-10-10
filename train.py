@@ -112,15 +112,6 @@ def create_generators(
     misc_effect = MiscEffect() if misc_aug else None
     visual_effect = VisualEffect() if visual_aug else None
 
-    # train_generator_ = PascalVocGenerator(
-    #     path,
-    #     'trainval' if config.MixUp_AUG == 0 else 'trainval_mixup',
-    #     skip_difficult=True,
-    #     misc_effect=misc_effect,
-    #     visual_effect=visual_effect,
-    #     **common_args
-    # )
-
     autotune = tf.data.AUTOTUNE
     (train, test) = tfds.load(name="dpcb_db", split=["train", "test"], data_dir="D:/datasets/")
     train = train.map(load_test.preprocess_data, num_parallel_calls=autotune)
@@ -129,7 +120,16 @@ def create_generators(
         batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True
     )
     train = train.map(load_test.inputs_targets, num_parallel_calls=autotune)
-    train_generator_ = train.prefetch(autotune).repeat()
+    train_generator_ = train.prefetch(autotune).cache().repeat()
+
+    # train_generator_ = PascalVocGenerator(
+    #     path,
+    #     'trainval' if config.MixUp_AUG == 0 else 'trainval_mixup',
+    #     skip_difficult=True,
+    #     misc_effect=misc_effect,
+    #     visual_effect=visual_effect,
+    #     **common_args
+    # )
 
     test_generator_ = PascalVocGenerator(
         path,

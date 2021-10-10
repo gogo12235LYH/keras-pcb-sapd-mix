@@ -1,5 +1,6 @@
 import tensorflow_datasets as tfds
 import tensorflow as tf
+from utils.util_graph import resize_images_pipeline
 
 
 def preprocess_data(sample):
@@ -20,6 +21,9 @@ def preprocess_data(sample):
 
     # image_input
     image = tf.cast(sample["image"], dtype=tf.float32)
+
+    image, _, _, _ = resize_images_pipeline(image, 512)
+
     bbox = sample["objects"]["bbox"]
     class_id = tf.cast(sample["objects"]["label"], dtype=tf.float32)
 

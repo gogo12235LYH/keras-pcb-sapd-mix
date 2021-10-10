@@ -12,10 +12,10 @@ def _preprocess_image(image, image_size: int, mode: str = "ResNetV1", padding_va
         resized_width = tf.cast((tf.cast(image_width, dtype=tf.float32) * scale), dtype=tf.int32)
     else:
         scale = tf.cast((image_size / image_width), dtype=tf.float32)
-        resized_width = image_size
         resized_height = tf.cast((tf.cast(image_height, dtype=tf.float32) * scale), dtype=tf.int32)
+        resized_width = image_size
 
-    image = tf.image.resize(image, (resized_height, resized_width))
+    image = tf.image.resize(image, (resized_height, resized_width), method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
     offset_h = (image_size - resized_height) // 2
     offset_w = (image_size - resized_width) // 2
 
@@ -49,7 +49,7 @@ def _preprocess_image(image, image_size: int, mode: str = "ResNetV1", padding_va
         image -= [0.485, 0.456, 0.406]
         image /= [0.229, 0.224, 0.225]
 
-    return image, scale, offset_h, offset_h
+    return image, scale, offset_h, offset_w
 
 
 def _fmap_shapes(phi: int = 0, level: int = 5):

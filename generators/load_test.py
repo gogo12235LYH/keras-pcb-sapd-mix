@@ -1,6 +1,6 @@
 import tensorflow_datasets as tfds
 import tensorflow as tf
-from generators.data_pipline import preprocess_data, inputs_targets
+from generators.data_pipeline import preprocess_data, inputs_targets
 
 
 # from utils.util_graph import resize_images_pipeline

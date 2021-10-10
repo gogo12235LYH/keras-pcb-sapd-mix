@@ -13,7 +13,7 @@ from models import SAPD
 from tensorflow.keras.callbacks import LearningRateScheduler
 from tensorflow_addons.optimizers import SGDW, AdamW
 from models.losses import model_loss
-from generators import load_test
+from generators.data_pipline import preprocess_data, inputs_targets
 from callbacks import create_callbacks
 
 
@@ -114,12 +114,12 @@ def create_generators(
 
     autotune = tf.data.AUTOTUNE
     (train, test) = tfds.load(name="dpcb_db", split=["train", "test"], data_dir="D:/datasets/")
-    train = train.map(load_test.preprocess_data, num_parallel_calls=autotune)
+    train = train.map(preprocess_data(phi=config.PHI, mode=config.BACKBONE_TYPE), num_parallel_calls=autotune)
     train = train.shuffle(8 * batch_size)
     train = train.padded_batch(
         batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True
     )
-    train = train.map(load_test.inputs_targets, num_parallel_calls=autotune)
+    train = train.map(inputs_targets, num_parallel_calls=autotune)
     train_generator_ = train.prefetch(autotune).cache().repeat()
 
     # train_generator_ = PascalVocGenerator(

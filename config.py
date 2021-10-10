@@ -17,8 +17,8 @@ DATABASE_PATH = _dataset_path[DATASET]
 
 """ Hyper-parameter setting """
 MODE = 1                # MODE = 1: Stage One; MODE = 2: Stage Two; MODE = 3: Top-1 Weight; MODE = 4: Top-5 Weight.
-EPOCHs = 50
-STEPs_PER_EPOCH = 100  # steps in one epoch
+EPOCHs = 10
+STEPs_PER_EPOCH = 10  # steps in one epoch
 EPOCHs_STAGE_ONE = int(EPOCHs * 0.5)
 BATCH_SIZE = 2          # Global Batch size
 NUM_CLS = 6
@@ -100,6 +100,7 @@ FSN_FACTOR = 0.1
 
 """ Model: Classification and Regression Loss """
 USING_QFL = 0           # Classification Loss: Quality Focal Loss
+MAX_BBOXES = 100
 IOU_LOSS = 'giou'       # Regression Loss: iou, giou, ciou, fciou
 IOU_FACTOR = 1.0
 
@@ -109,7 +110,8 @@ DATE = '20210921-'
 D_NAME = f'{DATASET}{MISC_AUG}{VISUAL_AUG}{MixUp_AUG}-'
 H_NAME = f'H{HEAD[0]}{HEAD_WS}{HEAD_GROUPS}F{FSN}-'
 O_NAME = f'{OPTIMIZER}'
-NAME = DATE + D_NAME + H_NAME + O_NAME + f"E{EPOCHs}BS{BATCH_SIZE}B{PHI}R{BACKBONE}D{SUBNET_DEPTH}"
+T_NAME = f"E{EPOCHs}BS{BATCH_SIZE}B{PHI}R{BACKBONE}D{SUBNET_DEPTH}"
+NAME = DATE + D_NAME + H_NAME + O_NAME + T_NAME
 
 
 """ Model Detections: NMS, Proposal setting """

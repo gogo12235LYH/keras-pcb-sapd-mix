@@ -13,7 +13,7 @@ from models import SAPD
 from tensorflow.keras.callbacks import LearningRateScheduler
 from tensorflow_addons.optimizers import SGDW, AdamW
 from models.losses import model_loss
-from generators.data_pipline import preprocess_data, inputs_targets
+from generators.data_pipeline import preprocess_data, inputs_targets
 from callbacks import create_callbacks
 
 

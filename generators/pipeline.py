@@ -1,33 +1,31 @@
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
+image_size = [512, 640, 768, 896, 1024, 1280, 1408]
+
 
 @tf.function
-def _preprocess_image(image, image_size: int, mode: str = "ResNetV1", padding_value: float = 128.):
-    image_height, image_width = tf.shape(image)[1], tf.shape(image)[2]
+def _preprocess_image(image, target_size: int, mode: str = "ResNetV1", padding_value: float = 128.):
+    image_height, image_width = tf.shape(image)[0], tf.shape(image)[1]
 
     if image_height > image_width:
-        scale = tf.cast((image_size / image_height), dtype=tf.float32)
-        resized_height = image_size
+        scale = tf.cast((target_size / image_height), dtype=tf.float32)
+        resized_height = target_size
         resized_width = tf.cast((tf.cast(image_width, dtype=tf.float32) * scale), dtype=tf.int32)
     else:
-        scale = tf.cast((image_size / image_width), dtype=tf.float32)
+        scale = tf.cast((target_size / image_width), dtype=tf.float32)
         resized_height = tf.cast((tf.cast(image_height, dtype=tf.float32) * scale), dtype=tf.int32)
-        resized_width = image_size
+        resized_width = target_size
 
     image = tf.image.resize(image, (resized_height, resized_width), method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
-    offset_h = (image_size - resized_height) // 2
-    offset_w = (image_size - resized_width) // 2
+    offset_h = (target_size - resized_height) // 2
+    offset_w = (target_size - resized_width) // 2
 
     # (h, w, c)
-    pad = tf.stack(
-        [
-            tf.stack([offset_h, offset_h], axis=0),
-            tf.stack([offset_w, offset_w], axis=0),
-            tf.constant([0, 0]),
-        ],
-        axis=0
-    )
+    pad = tf.stack([tf.stack([offset_h, offset_h], axis=0),
+                    tf.stack([offset_w, offset_w], axis=0),
+                    tf.constant([0, 0]),
+                    ], axis=0)
     image = tf.pad(image, pad, constant_values=padding_value)
 
     # image normalization
@@ -89,15 +87,12 @@ def random_flip_horizontal(image, boxes):
     return image, boxes
 
 
-def preprocess_data(phi=0, mode="ResNetV1", max_bboxes=100, padding_value=0.):
+def preprocess_data(phi=0, mode="ResNetV1", fmap_shapes=None, max_bboxes=100, padding_value=0.):
     """Applies preprocessing step to a single sample
 
     ref: https://keras.io/examples/vision/retinanet/#preprocessing-data
 
     """
-
-    image_size = [512, 640, 768, 896, 1024, 1280, 1408]
-    fmap_shapes = _fmap_shapes(phi)
 
     @tf.function
     def _preprocess_data(sample):
@@ -110,12 +105,8 @@ def preprocess_data(phi=0, mode="ResNetV1", max_bboxes=100, padding_value=0.):
         # TODO: data augmentation
         image, bbox = random_flip_horizontal(image, bbox)
 
-        image, scale, offset_h, offset_w = _preprocess_image(
-            image=image,
-            image_size=image_size[phi],
-            mode=mode,
-            padding_value=padding_value,
-        )
+        image, scale, offset_h, offset_w = _preprocess_image(image=image, target_size=image_size[phi], mode=mode,
+                                                             padding_value=padding_value)
 
         # gt_boxes_input
         bbox = tf.stack(
@@ -132,13 +123,9 @@ def preprocess_data(phi=0, mode="ResNetV1", max_bboxes=100, padding_value=0.):
         # true_label_count
         bbox_num = tf.shape(bbox)[0]
 
-        max_bbox_pad = tf.stack(
-            [
-                tf.stack([tf.constant(0), max_bboxes - bbox_num], axis=0),
-                tf.constant([0, 0]),
-            ],
-            axis=0
-        )
+        max_bbox_pad = tf.stack([tf.stack([tf.constant(0), max_bboxes - bbox_num], axis=0),
+                                 tf.constant([0, 0]),
+                                 ], axis=0)
         bbox = tf.pad(bbox, max_bbox_pad, constant_values=0.)
 
         # fmaps_shape
@@ -164,3 +151,27 @@ def inputs_targets(image, bbox, bbox_num, fmaps_shape):
     ]
 
     return inputs, targets
+
+
+def create_pipeline(phi=0, mode="ResNetV1", db="DPCB", batch_size=1):
+    autotune = tf.data.AUTOTUNE
+
+    if db == "DPCB":
+        (train, test) = tfds.load(name="dpcb_db", split=["train", "test"], data_dir="D:/datasets/")
+    else:
+        train = None
+        test = None
+
+    feature_maps_shapes = _fmap_shapes(phi)
+
+    train = train.map(preprocess_data(
+        phi=phi,
+        mode=mode,
+        fmap_shapes=feature_maps_shapes
+    ), num_parallel_calls=autotune)
+
+    train = train.shuffle(8 * batch_size)
+    train = train.padded_batch(batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True)
+    train = train.map(inputs_targets, num_parallel_calls=autotune)
+    train = train.prefetch(autotune).repeat()
+    return train, test

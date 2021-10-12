@@ -1,10 +1,6 @@
 import tensorflow_datasets as tfds
 import tensorflow as tf
-from generators.data_pipeline import preprocess_data, inputs_targets
-
-
-# from utils.util_graph import resize_images_pipeline
-
+from generators.pipeline import preprocess_data, inputs_targets
 
 if __name__ == '__main__':
     batch_size = 8

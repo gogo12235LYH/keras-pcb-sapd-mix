@@ -95,8 +95,7 @@ def preprocess_data(phi=0, mode: str = "ResNetV1", fmap_shapes=None, max_bboxes:
 
         return image, scale, offset_h, offset_w
 
-    def _padding_bboxes(image, bboxes, classes, scale, offset_h, offset_w):
-        image_shape = tf.cast(tf.shape(image)[:2], dtype=tf.float32)
+    def _padding_bboxes(image_shape, bboxes, classes, scale, offset_h, offset_w):
 
         # gt_boxes_input
         bboxes = tf.stack(
@@ -121,6 +120,7 @@ def preprocess_data(phi=0, mode: str = "ResNetV1", fmap_shapes=None, max_bboxes:
     def _preprocess_data(sample):
         #
         image = tf.cast(sample["image"], dtype=tf.float32)
+        image_shape = tf.cast(tf.shape(image)[:2], dtype=tf.float32)
         bboxes = tf.cast(sample["objects"]["bbox"], dtype=tf.float32)
         classes = tf.cast(sample["objects"]["label"], dtype=tf.float32)
 
@@ -130,7 +130,7 @@ def preprocess_data(phi=0, mode: str = "ResNetV1", fmap_shapes=None, max_bboxes:
         #
         image, scale, offset_h, offset_w = _resize_image(image=image, target_size=_image_size[phi])
         image = _normalization_image(image, mode)
-        bboxes, bboxes_count = _padding_bboxes(image, bboxes, classes, scale, offset_h, offset_w)
+        bboxes, bboxes_count = _padding_bboxes(image_shape, bboxes, classes, scale, offset_h, offset_w)
         fmaps_shape = tf.constant(fmap_shapes, dtype=tf.int32)
         return image, bboxes, bboxes_count[None], fmaps_shape
 

@@ -1552,11 +1552,11 @@ def SAPD(
 ):
     """ Model Input """
     # Image Input: 影像, 限定Channel.
-    image_input = keras.layers.Input((None, None, 3), name='image_input')
+    image_input = keras.layers.Input((None, None, 3), name='image')
     # Gt Boxes Input: 真實框, [x1, y1, x2, y2, class]
-    gt_boxes_input = keras.layers.Input((max_gt_boxes, 5), name='gt_boxes_input')
+    gt_boxes_input = keras.layers.Input((max_gt_boxes, 5), name='bboxes')
     # True Label Gt Boxes Count Input: 真實框數量
-    true_label_gt_boxes_count_input = keras.layers.Input((1,), dtype=tf.int32, name='true_label_count')
+    true_label_gt_boxes_count_input = keras.layers.Input((1,), dtype=tf.int32, name='bboxes_count')
     # Feature Maps Shape Input: 各FPN輸出特徵圖大小
     feature_maps_shape_input = keras.layers.Input((5, 2), dtype=tf.int32, name='fmaps_shape')
 

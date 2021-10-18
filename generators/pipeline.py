@@ -128,9 +128,9 @@ def tf_rotate(image, bboxes, image_shape, prob=0.5):
         tf_cos = tf.math.cos(angle)
         tf_sin = tf.math.sin(angle)
 
-        x = (x - offset[0]) * tf_cos - (y - offset[1]) * tf_sin + offset[0]
-        y = (x - offset[0]) * tf_sin + (y - offset[1]) * tf_cos + offset[1]
-        return x, y
+        x_r = (x - offset[1]) * tf_cos - (y - offset[0]) * tf_sin + offset[1]
+        y_r = (x - offset[1]) * tf_sin + (y - offset[0]) * tf_cos + offset[0]
+        return x_r, y_r
 
     def _rotate_bbox(bbox):
         angle = tf.cast(rotate_k, dtype=tf.float32) * 90.

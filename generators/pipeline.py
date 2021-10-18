@@ -1,7 +1,10 @@
+import cv2
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
 _image_size = [512, 640, 768, 896, 1024, 1280, 1408]
+_angle = [90., 180., 270.]
 
 
 def _normalization_image(image, mode):
@@ -61,6 +64,126 @@ def random_flip_horizontal(image, boxes):
             , axis=-1
         )
     return image, boxes
+
+
+@tf.function
+def rotate(image, bboxes, prob=1.0, border_value=0.):
+    random_prob = np.random.uniform()
+    if random_prob < (1 - prob):
+        return image, bboxes
+
+    rotate_degree = np.random.choice([90, 180, 270])
+    h, w = image.shape[:2]
+
+    # Compute the rotation matrix.
+    M = cv2.getRotationMatrix2D(center=(w / 2, h / 2),
+                                angle=rotate_degree,
+                                scale=1)
+
+    # Get the sine and cosine from the rotation matrix.
+    abs_cos_angle = np.abs(M[0, 0])
+    abs_sin_angle = np.abs(M[0, 1])
+
+    # Compute the new bounding dimensions of the image.
+    new_w = int(h * abs_sin_angle + w * abs_cos_angle)
+    new_h = int(h * abs_cos_angle + w * abs_sin_angle)
+
+    # Adjust the rotation matrix to take into account the translation.
+    M[0, 2] += new_w // 2 - w // 2
+    M[1, 2] += new_h // 2 - h // 2
+
+    # Rotate the image.
+    image = cv2.warpAffine(image, M=M, dsize=(new_w, new_h), flags=cv2.INTER_CUBIC,
+                           borderMode=cv2.BORDER_CONSTANT,
+                           borderValue=border_value)
+
+    new_bboxes = []
+
+    if bboxes.shape[0] != 0:
+        for bbox in bboxes:
+            x1, y1, x2, y2 = bbox
+            points = M.dot([
+                [x1, x2, x1, x2],
+                [y1, y2, y2, y1],
+                [1, 1, 1, 1],
+            ])
+            # Extract the min and max corners again.
+            min_xy = np.sort(points, axis=1)[:, :2]
+            min_x = np.mean(min_xy[0])
+            min_y = np.mean(min_xy[1])
+            max_xy = np.sort(points, axis=1)[:, 2:]
+            max_x = np.mean(max_xy[0])
+            max_y = np.mean(max_xy[1])
+            new_bboxes.append([min_x, min_y, max_x, max_y])
+
+    return image, new_bboxes
+
+
+@tf.function
+def tf_rotate(image, bboxes, image_shape, prob=0.5):
+    offset = image_shape / 2.
+    rotate_k = np.random.choice([1, 2, 3])
+
+    def _r_method(x, y, angle):
+        tf_cos = tf.math.cos(angle)
+        tf_sin = tf.math.sin(angle)
+
+        x = (x - offset[0]) * tf_cos - (y - offset[1]) * tf_sin + offset[0]
+        y = (x - offset[0]) * tf_sin + (y - offset[1]) * tf_cos + offset[1]
+        return x, y
+
+    def _rotate_bbox(bbox):
+        angle = tf.cast(rotate_k, dtype=tf.float32) * 90.
+
+        x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
+
+        x1, y1 = _r_method(x1, y1, angle)
+        x2, y2 = _r_method(x2, y2, angle)
+
+        bbox = tf.stack([
+            tf.minimum(x1, x2), tf.minimum(y1, y2),
+            tf.maximum(x1, x2), tf.maximum(y1, y2)
+        ])
+        return bbox
+
+    if tf.random.uniform(()) > prob:
+
+        image = tf.image.rot90(image, k=rotate_k)
+
+        bboxes = tf.map_fn(
+            _rotate_bbox,
+            elems=bboxes,
+            fn_output_signature=tf.float32
+        )
+
+    return image, bboxes
+
+
+@tf.function
+def crop(image, bboxes, prob=0.5):
+    if tf.random.uniform(()) > prob:
+
+        h, w = image.shape[:2]
+
+        if bboxes.shape[0] != 0:
+            min_x1, min_y1 = np.min(bboxes, axis=0)[:2]
+            max_x2, max_y2 = np.max(bboxes, axis=0)[2:]
+            random_x1 = np.random.randint(0, max(min_x1 // 2, 1))
+            random_y1 = np.random.randint(0, max(min_y1 // 2, 1))
+            random_x2 = np.random.randint(max_x2 + 1, max(min(w, max_x2 + (w - max_x2) // 2), max_x2 + 2))
+            random_y2 = np.random.randint(max_y2 + 1, max(min(h, max_y2 + (h - max_y2) // 2), max_y2 + 2))
+            image = image[random_y1:random_y2, random_x1:random_x2]
+            bboxes[:, [0, 2]] = bboxes[:, [0, 2]] - random_x1
+            bboxes[:, [1, 3]] = bboxes[:, [1, 3]] - random_y1
+
+        else:
+            random_x1 = np.random.randint(0, max(w // 8, 1))
+            random_y1 = np.random.randint(0, max(h // 8, 1))
+            random_x2 = np.random.randint(7 * w // 8, w - 1)
+            random_y2 = np.random.randint(7 * h // 8, h - 1)
+            image = image[random_y1:random_y2, random_x1:random_x2]
+
+    return image, bboxes
 
 
 def preprocess_data(phi=0, mode: str = "ResNetV1", fmap_shapes=None, max_bboxes: int = 100, padding_value: float = 0.):
@@ -126,6 +249,9 @@ def preprocess_data(phi=0, mode: str = "ResNetV1", fmap_shapes=None, max_bboxes:
 
         # TODO: data augmentation
         image, bboxes = random_flip_horizontal(image, bboxes)
+
+        image, bboxes = tf_rotate(image, bboxes, image_shape, prob=0.5)
+        # image, bboxes = crop(image, bboxes)
 
         #
         image, scale, offset_h, offset_w = _resize_image(image=image, target_size=_image_size[phi])

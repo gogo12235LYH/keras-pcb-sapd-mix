@@ -4,7 +4,6 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 
 _image_size = [512, 640, 768, 896, 1024, 1280, 1408]
-_angle = [90., 180., 270.]
 
 
 def _normalization_image(image, mode):
@@ -128,12 +127,22 @@ def tf_rotate(image, bboxes, image_shape, prob=0.5):
         tf_cos = tf.math.cos(angle)
         tf_sin = tf.math.sin(angle)
 
-        x_r = (x - offset[1]) * tf_cos - (y - offset[0]) * tf_sin + offset[1]
-        y_r = (x - offset[1]) * tf_sin + (y - offset[0]) * tf_cos + offset[0]
+        tf_abs_cos = tf.abs(tf_cos)
+        tf_abs_sin = tf.abs(tf_sin)
+
+        offset_h, offset_w = offset[0], offset[1]
+
+        new_offset_w = offset_w * (tf_abs_cos - tf_cos) + offset_h * (tf_abs_sin * tf_sin)
+        new_offset_h = offset_w * (tf_abs_sin + tf_sin) + offset_h * (tf_abs_cos * tf_cos)
+
+        x_r = x * tf_cos + y * tf_sin + new_offset_w
+        y_r = x * tf_sin * -1 + y * tf_cos + new_offset_h
+
         return x_r, y_r
 
     def _rotate_bbox(bbox):
-        angle = tf.cast(rotate_k, dtype=tf.float32) * 90.
+        # degree: pi/2, pi, 3*pi/2
+        angle = tf.cast(rotate_k, dtype=tf.float32) * (np.pi / 2.)
 
         x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
 
@@ -250,7 +259,7 @@ def preprocess_data(phi=0, mode: str = "ResNetV1", fmap_shapes=None, max_bboxes:
         # TODO: data augmentation
         image, bboxes = random_flip_horizontal(image, bboxes)
 
-        image, bboxes = tf_rotate(image, bboxes, image_shape, prob=0.5)
+        # image, bboxes = tf_rotate(image, bboxes, image_shape, prob=0.5)
         # image, bboxes = crop(image, bboxes)
 
         #

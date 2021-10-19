@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -116,7 +115,6 @@ def tf_rotate(
             elems=bboxes,
             fn_output_signature=tf.float32
         )
-
     return image, bboxes
 
 
@@ -264,7 +262,7 @@ def create_pipeline_test(phi=0, mode="ResNetV1", db="DPCB", batch_size=1):
     autotune = tf.data.AUTOTUNE
 
     if db == "DPCB":
-        (train, test) = tfds.load(name="dpcb_db", split=["train", "test"], data_dir="D:/huai/datasets/")
+        (train, test) = tfds.load(name="dpcb_db", split=["train", "test"], data_dir="D:/datasets/")
     else:
         train = None
         test = None
@@ -284,6 +282,171 @@ def create_pipeline_test(phi=0, mode="ResNetV1", db="DPCB", batch_size=1):
     return train, test
 
 
+class PipeLine:
+    def __init__(
+            self,
+            phi: int = 0,
+            batch_size: int = 2,
+            database_name: str = "DPCB",
+            database_path: str = "D:/datasets/",
+            mode: str = "ResNetV1",
+            misc_aug: bool = False,
+            color_aug: bool = False,
+            max_bboxes: int = 100,
+            padding_value: float = 0.
+    ):
+        self.phi = phi
+        self.batch_size = batch_size
+        self.database_name = database_name
+        self.database_path = database_path
+        self.mode = mode
+        self.misc_aug = misc_aug
+        self.color_aug = color_aug
+        self.max_bboxes = max_bboxes
+        self.padding_value = padding_value
+
+        self.db_dict = {
+            "DPCB": "dpcb_db"
+        }
+
+    def create(self, test_mode: bool = False):
+
+        autotune = tf.data.AUTOTUNE
+
+        train, test = self._load_data()
+
+        # inputs
+        train = train.map(self._compute_inputs, num_parallel_calls=autotune)
+
+        # augmentation
+        train = train.map(self._augmentation, num_parallel_calls=autotune)
+
+        # targets
+        train = train.map(self._compute_targets, num_parallel_calls=autotune)
+
+        # setting batch size and padding
+        train = train.shuffle(8 * self.batch_size)
+        train = train.padded_batch(batch_size=self.batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True)
+
+        # combine inputs and targets
+        train = train.map(self._inputs_targets, num_parallel_calls=autotune)
+        train = train.prefetch(autotune).repeat() if not test_mode else train.prefetch(autotune)
+        return train, test
+
+    def _load_data(self):
+        (train, test) = tfds.load(name=self.db_dict[self.database_name], split=["train", "test"],
+                                  data_dir=self.database_path)
+        return train, test
+
+    @staticmethod
+    def _compute_inputs(sample):
+        image = tf.cast(sample["image"], dtype=tf.float32)
+        image_shape = tf.cast(tf.shape(image)[:2], dtype=tf.float32)
+        bboxes = tf.cast(sample["objects"]["bbox"], dtype=tf.float32)
+        classes = tf.cast(sample["objects"]["label"], dtype=tf.float32)
+
+        bboxes = tf.stack(
+            [
+                bboxes[:, 0] * image_shape[1],
+                bboxes[:, 1] * image_shape[0],
+                bboxes[:, 2] * image_shape[1],
+                bboxes[:, 3] * image_shape[0],
+            ],
+            axis=-1
+        )
+        return image, image_shape, bboxes, classes
+
+    def _augmentation(self, image, image_shape, bboxes, classes):
+        if not self.misc_aug and not self.color_aug:
+            return image, bboxes, classes
+
+        else:
+            if self.misc_aug:
+                image, bboxes = tf_rotate(image, image_shape, bboxes, prob=0.5)
+                image, bboxes = random_flip_horizontal(image, image_shape, bboxes, prob=0.5)
+
+            if self.color_aug:
+                # TODO: Needs to implement
+                pass
+
+            return image, bboxes, classes
+
+    def _compute_targets(self, image, bboxes, classes):
+        image, scale, offset_h, offset_w = self._resize_image_offset(image=image, target_size=_image_size[self.phi])
+
+        image = _normalization_image(image, mode=self.mode)
+
+        bboxes, bboxes_count = self._padding_bboxes(bboxes, classes, scale, offset_h, offset_w)
+
+        fmaps_shape = tf.constant(_fmap_shapes(self.phi), dtype=tf.int32)
+
+        return image, bboxes, bboxes_count[None], fmaps_shape
+
+    def _resize_image_offset(self, image, target_size=512):
+        image_height, image_width = tf.shape(image)[0], tf.shape(image)[1]
+
+        if image_height > image_width:
+            scale = tf.cast((target_size / image_height), dtype=tf.float32)
+            resized_height = target_size
+            resized_width = tf.cast((tf.cast(image_width, dtype=tf.float32) * scale), dtype=tf.int32)
+        else:
+            scale = tf.cast((target_size / image_width), dtype=tf.float32)
+            resized_height = tf.cast((tf.cast(image_height, dtype=tf.float32) * scale), dtype=tf.int32)
+            resized_width = target_size
+
+        image = tf.image.resize(image, (resized_height, resized_width), method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+        offset_h = (target_size - resized_height) // 2
+        offset_w = (target_size - resized_width) // 2
+
+        # (h, w, c)
+        pad = tf.stack([tf.stack([offset_h, offset_h], axis=0),
+                        tf.stack([offset_w, offset_w], axis=0),
+                        tf.constant([0, 0]),
+                        ], axis=0)
+        image = tf.pad(image, pad, constant_values=self.padding_value)
+
+        return image, scale, offset_h, offset_w
+
+    def _padding_bboxes(self, bboxes, classes, scale, offset_h, offset_w):
+
+        # gt_boxes_input
+        bboxes = tf.stack(
+            [
+                bboxes[:, 0] * scale + tf.cast(offset_w, dtype=tf.float32),
+                bboxes[:, 1] * scale + tf.cast(offset_h, dtype=tf.float32),
+                bboxes[:, 2] * scale + tf.cast(offset_w, dtype=tf.float32),
+                bboxes[:, 3] * scale + tf.cast(offset_h, dtype=tf.float32),
+                classes
+            ],
+            axis=-1,
+        )
+
+        # true_label_count
+        bboxes_count = tf.shape(bboxes)[0]
+        max_bbox_pad = tf.stack([tf.stack([tf.constant(0), self.max_bboxes - bboxes_count], axis=0),
+                                 tf.constant([0, 0]),
+                                 ], axis=0)
+        bboxes = tf.pad(bboxes, max_bbox_pad, constant_values=0.)
+        return bboxes, bboxes_count
+
+    @staticmethod
+    def _inputs_targets(image, bboxes, bboxes_count, fmaps_shape):
+        inputs = {
+            "image": image,
+            "bboxes": bboxes,
+            "bboxes_count": bboxes_count,
+            "fmaps_shape": fmaps_shape,
+        }
+
+        targets = [
+            tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
+            tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
+            tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
+        ]
+
+        return inputs, targets
+
+
 if __name__ == '__main__':
     bs = 4
 
@@ -291,6 +454,27 @@ if __name__ == '__main__':
         phi=1,
         batch_size=bs
     )
+    # ************ Summary ************
+    # Examples/sec (First included) 84.86 ex/sec (total: 1000 ex, 11.78 sec)
+    # Examples/sec (First only) 6.83 ex/sec (total: 4 ex, 0.59 sec)
+    # Examples/sec (First excluded) 88.95 ex/sec (total: 996 ex, 11.20 sec)
+    # ************ Summary ************
+    # Examples/sec (First included) 86.18 ex/sec (total: 1000 ex, 11.60 sec)
+    # Examples/sec (First only) 6.84 ex/sec (total: 4 ex, 0.58 sec)
+    # Examples/sec (First excluded) 90.39 ex/sec (total: 996 ex, 11.02 sec)
+
+    # train_t, test_t = PipeLine(
+    #     phi=1,
+    #     batch_size=bs
+    # ).create(test_mode=True)
+    # ************ Summary ************
+    # Examples/sec (First included) 89.17 ex/sec (total: 1000 ex, 11.22 sec)
+    # Examples/sec (First only) 8.37 ex/sec (total: 4 ex, 0.48 sec)
+    # Examples/sec (First excluded) 92.76 ex/sec (total: 996 ex, 10.74 sec)
+    # ************ Summary ************
+    # Examples/sec (First included) 97.02 ex/sec (total: 1000 ex, 10.31 sec)
+    # Examples/sec (First only) 8.89 ex/sec (total: 4 ex, 0.45 sec)
+    # Examples/sec (First excluded) 101.04 ex/sec (total: 996 ex, 9.86 sec)
 
     tfds.benchmark(train_t, batch_size=bs)
 

@@ -450,10 +450,10 @@ class PipeLine:
 if __name__ == '__main__':
     bs = 4
 
-    train_t, test_t = create_pipeline_test(
-        phi=1,
-        batch_size=bs
-    )
+    # train_t, test_t = create_pipeline_test(
+    #     phi=1,
+    #     batch_size=bs
+    # )
     # ************ Summary ************
     # Examples/sec (First included) 84.86 ex/sec (total: 1000 ex, 11.78 sec)
     # Examples/sec (First only) 6.83 ex/sec (total: 4 ex, 0.59 sec)
@@ -463,18 +463,19 @@ if __name__ == '__main__':
     # Examples/sec (First only) 6.84 ex/sec (total: 4 ex, 0.58 sec)
     # Examples/sec (First excluded) 90.39 ex/sec (total: 996 ex, 11.02 sec)
 
-    # train_t, test_t = PipeLine(
-    #     phi=1,
-    #     batch_size=bs
-    # ).create(test_mode=True)
+    train_t, test_t = PipeLine(
+        phi=1,
+        batch_size=bs,
+        misc_aug=True
+    ).create(test_mode=True)
     # ************ Summary ************
-    # Examples/sec (First included) 89.17 ex/sec (total: 1000 ex, 11.22 sec)
-    # Examples/sec (First only) 8.37 ex/sec (total: 4 ex, 0.48 sec)
-    # Examples/sec (First excluded) 92.76 ex/sec (total: 996 ex, 10.74 sec)
+    # Examples/sec (First included) 84.22 ex/sec (total: 1000 ex, 11.87 sec)
+    # Examples/sec (First only) 6.48 ex/sec (total: 4 ex, 0.62 sec)
+    # Examples/sec (First excluded) 88.49 ex/sec (total: 996 ex, 11.26 sec)
     # ************ Summary ************
-    # Examples/sec (First included) 97.02 ex/sec (total: 1000 ex, 10.31 sec)
-    # Examples/sec (First only) 8.89 ex/sec (total: 4 ex, 0.45 sec)
-    # Examples/sec (First excluded) 101.04 ex/sec (total: 996 ex, 9.86 sec)
+    # Examples/sec (First included) 85.43 ex/sec (total: 1000 ex, 11.71 sec)
+    # Examples/sec (First only) 6.22 ex/sec (total: 4 ex, 0.64 sec)
+    # Examples/sec (First excluded) 90.03 ex/sec (total: 996 ex, 11.06 sec)
 
     tfds.benchmark(train_t, batch_size=bs)
 

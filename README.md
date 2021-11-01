@@ -10,7 +10,8 @@ _此貢獻為記錄原始研究程式碼及數據成果，初始環境為 Ubuntu
 
 1. 完成 README.md
 2. ~~資料集轉換 (tfds 建立)~~ Done -> [build-tfds](https://github.com/gogo12235LYH/build-tfds) 
-4. 透過 tf.data 取代 keras.Sequence 來增加 GPU使用率
+3. 透過 tf.data 取代 keras.Sequence 來增加 GPU使用率 (目前測試多卡訓練，在linux可使用keras sequence
+則windows 就必須使用 tf.data才能夠穩定使用多卡訓練)
 
 ## 目錄
 
@@ -130,6 +131,10 @@ IOU_LOSS = 'giou'  # Regression Loss: iou, giou, ciou, fciou
 IOU_FACTOR = 1.0
 ```
 
+#### :moon: 關於目標重疊問題
+
+在真實情況下，勢必會發生預選框重疊的事件，而這裡與FCOS相同的處理方式，label assign 的部分使用最小面積過濾重複區域。
+
 ### 2.5 :point_right: 開始~~煉丹~~訓練
 
 ```
@@ -175,6 +180,8 @@ Epoch 1/25
 依據每層特徵金字塔得出 80 * 80, 40 * 40, 20 * 20, 10 * 10, 5 * 5 
 各層面積累加可得 8525 之上限提案數量。)
 
+這裡換言之，也就是輸入影像越大，提案案數量上限也越大。
+
 非極大值抑制(NMS)，目前提供 NMS，Soft-NMS 。
 
 ```python
@@ -183,8 +190,6 @@ NMS = 1  # 1 for NMS, 2 for Soft-NMS
 NMS_TH = 0.5  # intersect of union threshold in same detections
 DETECTIONS = 1000  # detecting proposals
 ```
-
-_待_
 
 ### 3.2 Deep PCB:
 

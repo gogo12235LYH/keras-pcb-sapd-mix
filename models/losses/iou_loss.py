@@ -196,7 +196,7 @@ def iou_mask_v2(mode='fciou', factor=1.0):
         normalizer = keras.backend.maximum(1., num_pos)
         return factor * tf.reduce_sum(masked_iou_loss) / normalizer
 
-    @tf.function(jit_compile=True)
+    @tf.function(jit_compile=True)  # only for tensorflow 2.6, sometimes should use experiment_compile
     def iou_method(soft_weight, y_pred, y_true):
         # pred
         pred_left = y_pred[:, :, 0]
@@ -218,6 +218,7 @@ def iou_mask_v2(mode='fciou', factor=1.0):
         target_height = target_top + target_bottom
         target_area = (target_left + target_right) * (target_top + target_bottom)
 
+        # intersection between target and predict bboxes.
         w_intersect = tf.minimum(pred_left, target_left) + tf.minimum(pred_right, target_right)
         h_intersect = tf.minimum(pred_bottom, target_bottom) + tf.minimum(pred_top, target_top)
         area_intersect = w_intersect * h_intersect
@@ -239,6 +240,7 @@ def iou_mask_v2(mode='fciou', factor=1.0):
             iou_loss = (1 - g_iou) * soft_weight
 
         elif mode == 'ciou':
+            # without center fixing
             pred_atan = tf.atan(pred_width / (pred_height + 1e-9))
             target_atan = tf.atan(target_width / (target_height + 1e-9))
 
@@ -248,6 +250,7 @@ def iou_mask_v2(mode='fciou', factor=1.0):
             iou_loss = (1 - c_iou) * soft_weight
 
         elif mode == 'fciou':
+            # full version of CIoU
             g_w_intersect = tf.maximum(pred_left, target_left) + tf.maximum(pred_right, target_right)
             g_h_intersect = tf.maximum(pred_bottom, target_bottom) + tf.maximum(pred_top, target_top)
             max_diagonal = g_h_intersect ** 2 + g_w_intersect ** 2

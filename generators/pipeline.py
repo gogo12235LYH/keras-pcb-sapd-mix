@@ -148,19 +148,19 @@ def random_crop(
 
         random_x2 = tf.random.uniform(
             (),
-            minval=max_x2y2[0] + 1.,
+            minval=max_x2y2[0] - 1.0,
             maxval=tf.math.maximum(
                 tf.math.minimum(image_shape[1], max_x2y2[0] + (image_shape[1] - max_x2y2[0]) / 2.),
-                max_x2y2[0] + 2.
+                max_x2y2[0]
             ),
             dtype=tf.float32
         )
         random_y2 = tf.random.uniform(
             (),
-            minval=max_x2y2[1] + 1.,
+            minval=max_x2y2[1] - 1.,
             maxval=tf.math.maximum(
                 tf.math.minimum(image_shape[0], max_x2y2[1] + (image_shape[0] - max_x2y2[1]) / 2.),
-                max_x2y2[1] + 2.
+                max_x2y2[1]
             ),
             dtype=tf.float32
         )
@@ -588,41 +588,41 @@ if __name__ == '__main__':
     # Examples/sec (First only) 6.22 ex/sec (total: 4 ex, 0.64 sec)
     # Examples/sec (First excluded) 90.03 ex/sec (total: 996 ex, 11.06 sec)
 
-    cnt = 0
-    while cnt < 5:
-        inputs_batch, targets_batch = next(iter(train_t))
+    # cnt = 0
+    # while cnt < 5:
+    #     inputs_batch, targets_batch = next(iter(train_t))
+    #
+    #     images = inputs_batch['image']
+    #     bboxes = inputs_batch['bboxes']
+    #
+    #     bboxes = tf.stack(
+    #         [
+    #             bboxes[..., 1],
+    #             bboxes[..., 0],
+    #             bboxes[..., 3],
+    #             bboxes[..., 2],
+    #         ],
+    #         axis=-1
+    #     )
+    #
+    #     colors = np.array([[255.0, 0.0, 0.0]])
+    #     images = tf.image.draw_bounding_boxes(
+    #         images,
+    #         bboxes,
+    #         colors=colors
+    #     )
+    #
+    #     plt.figure(figsize=(10, 8))
+    #     for i in range(bs):
+    #         plt.subplot(2, 2, i + 1)
+    #         plt.imshow(images[i].numpy().astype("uint8"))
+    #         print(bboxes[i])
+    #
+    #     # plt.pause(0)
+    #     cnt += 1
 
-        images = inputs_batch['image']
-        bboxes = inputs_batch['bboxes']
-
-        bboxes = tf.stack(
-            [
-                bboxes[..., 1],
-                bboxes[..., 0],
-                bboxes[..., 3],
-                bboxes[..., 2],
-            ],
-            axis=-1
-        )
-
-        colors = np.array([[255.0, 0.0, 0.0]])
-        images = tf.image.draw_bounding_boxes(
-            images,
-            bboxes,
-            colors=colors
-        )
-
-        plt.figure(figsize=(10, 8))
-        for i in range(bs):
-            plt.subplot(2, 2, i + 1)
-            plt.imshow(images[i].numpy().astype("uint8"))
-            print(bboxes[i])
-
-        # plt.pause(0)
-        cnt += 1
-
-    # tfds.benchmark(train_t, batch_size=bs)
-    # tfds.benchmark(train_t, batch_size=bs)
+    tfds.benchmark(train_t, batch_size=bs)
+    tfds.benchmark(train_t, batch_size=bs)
 
     # image : (Batch, None, None, 3)
     # bboxes : (Batch, None, 5)

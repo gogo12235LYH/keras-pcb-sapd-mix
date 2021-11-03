@@ -40,6 +40,7 @@ def _fmap_shapes(phi: int = 0, level: int = 5):
     return shapes
 
 
+@tf.function
 def random_flip_horizontal(
         image, image_shape, bboxes, prob=0.5
 ):
@@ -118,6 +119,28 @@ def tf_rotate(
     return image, bboxes
 
 
+@tf.function
+def multi_scale(
+        image, image_shape, bboxes, prob=0.5
+):
+    if tf.random.uniform(()) > prob:
+        start, end, step = 0.8, 1.3, 0.05
+        scale = np.random.choice(np.arange(start, end, step))
+
+        new_image_shape = tf.cast(image_shape * scale, dtype=tf.int32)
+        image = tf.image.resize(image, new_image_shape, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+
+        bboxes *= scale
+    return image, bboxes
+
+
+def random_image_saturation(image, prob=.5):
+    if tf.random.uniform(()) > prob:
+        image = tf.image.random_saturation(image)
+
+    return image
+
+
 def preprocess_data(
         phi: int = 0,
         mode: str = "ResNetV1",
@@ -183,6 +206,7 @@ def preprocess_data(
         image, image_shape, bboxes, classes = compute_inputs(sample)
 
         # TODO: data augmentation
+        image, bboxes = multi_scale(image, image_shape, bboxes, prob=0.5)
         image, bboxes = tf_rotate(image, image_shape, bboxes, prob=0.5)
         image, bboxes = random_flip_horizontal(image, image_shape, bboxes, prob=0.5)
 
@@ -450,10 +474,10 @@ class PipeLine:
 if __name__ == '__main__':
     bs = 4
 
-    # train_t, test_t = create_pipeline_test(
-    #     phi=1,
-    #     batch_size=bs
-    # )
+    train_t, test_t = create_pipeline_test(
+        phi=1,
+        batch_size=bs
+    )
     # ************ Summary ************
     # Examples/sec (First included) 84.86 ex/sec (total: 1000 ex, 11.78 sec)
     # Examples/sec (First only) 6.83 ex/sec (total: 4 ex, 0.59 sec)
@@ -463,11 +487,11 @@ if __name__ == '__main__':
     # Examples/sec (First only) 6.84 ex/sec (total: 4 ex, 0.58 sec)
     # Examples/sec (First excluded) 90.39 ex/sec (total: 996 ex, 11.02 sec)
 
-    train_t, test_t = PipeLine(
-        phi=1,
-        batch_size=bs,
-        misc_aug=True
-    ).create(test_mode=True)
+    # train_t, test_t = PipeLine(
+    #     phi=1,
+    #     batch_size=bs,
+    #     misc_aug=True
+    # ).create(test_mode=True)
     # ************ Summary ************
     # Examples/sec (First included) 84.22 ex/sec (total: 1000 ex, 11.87 sec)
     # Examples/sec (First only) 6.48 ex/sec (total: 4 ex, 0.62 sec)

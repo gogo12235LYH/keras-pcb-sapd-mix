@@ -2,11 +2,9 @@
 
 _此貢獻為記錄原始研究程式碼及數據成果，初始環境為 Ubuntu 18.04, Tensorflow 2.3.0_ :moon: [LINK](http://etheses.lib.ntust.edu.tw/cgi-bin/gs32/gsweb.cgi?o=dstdcdr&s=id=%22G0M10812020%22.&searchmode=basic)
 
-:heart: _目前即將更新為 Tensorflow 2.6.0_ :heart:
+:heart: _目前支援 Tensorflow 2.6.0_
 
-~~身邊只有筆電，且 TF2.3 on Windows 使用 GPU 有不少毛病 eo4...~~
-
-## :fire: To Do List :fire:
+## :fire: To Do List
 
 1. 完成 README.md
 2. ~~資料集轉換 (tfds 建立)~~ Done -> [build-tfds](https://github.com/gogo12235LYH/build-tfds) 
@@ -63,6 +61,8 @@ To enable them in other operations, rebuild TensorFlow with the appropriate comp
 
 在 [SAPD](https://arxiv.org/abs/1911.12448) 研究中說明到訓練時， 可在前期訓練將 Feature Selection Network (FSN) 預測權重設定為擁有最低損失的特徵金字塔層(FSN 的
 ground truth)， 後續訓練則選擇預測結果前三高來進行訓練時的抑制。
+
+換句話說，SAPD改善策略是聚焦在訓練過程上，在推論過程中與RetinaNet, FCOS等較相同。
 
 ### 2.1 MODE 及 基本超參數
 
@@ -221,7 +221,7 @@ DETECTIONS = 1000  # detecting proposals
 * 訓練及評估影像大小: 640 * 640 ( PHI=1 )
 * 如果 改用 R101 或是 更高的解析度，理論上數據( mAP )會繼續提升。
 
-我在實驗過程使用 Mix 時，有出現過 AP.5 達 0.827 左右。
+在實驗過程使用 Mix 時，有出現過 AP.5 達 0.827 左右。
 
 | subnetworks | backbone | setting | mAP | AP.5 | AP.75 | AP.9 |
 | ------ |------ |------ |------ |------ |------ | ------ |

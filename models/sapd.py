@@ -345,6 +345,21 @@ def _build_map_function_top_soft_weight(soft_weight, top_k=3):
     )
 
 
+# refactor - 20211105
+def _build_map_function_top_soft_weight_test(soft_weight, top_k=3):
+    # soft_weight: (None, 5)
+    # topk_value: (None, top_k)
+    topk_min = tf.math.top_k(soft_weight, k=top_k)[0][..., -1, None]
+
+    boolean_mask = soft_weight <= topk_min
+
+    return tf.where(
+        boolean_mask,
+        soft_weight,
+        0.
+    )
+
+
 # 2020-11-04, 選取最高3個權重 Normal (限Soft Weight)
 def _build_map_function_top_soft_weight_v2(soft_weight, top_k=3):
     assert 6 > top_k > 0
@@ -455,7 +470,7 @@ class FeatureSelectWeight_V1_1(keras.layers.Layer):
             # (sum(Batch_True_Label_count), select_weight_pred) = (1 * 6, 5)
             gt_boxes_select_weight = inputs[0]
             if 1 < config.FSN_TOP_K < 5:
-                gt_boxes_select_weight = _build_map_function_top_soft_weight(
+                gt_boxes_select_weight = _build_map_function_top_soft_weight_test(
                     gt_boxes_select_weight, top_k=config.FSN_TOP_K
                 )
 

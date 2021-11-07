@@ -40,22 +40,23 @@ class FeatureSelectInput(keras.layers.Layer):
         # (Batch * Max_Bboxes_count, 4)
         batch_gt_boxes = tf.reshape(batch_gt_boxes, (-1, tf.shape(batch_gt_boxes)[-1]))
 
-        # batch_gt_true_boxes : 真實標記框; shape = (Batch * True_Label_count, 4)
-        # non_zeros_mask : 真實標記框為True, 填補框為False; shape = (Batch * Max_Bboxes_count, )
+        # batch_gt_true_boxes: (total_True_Label_count, 4)
+        # non_zeros_mask:  (Batch * Max_Bboxes_count, )
         batch_gt_true_boxes, non_zeros_mask = trim_zero_padding_boxes(batch_gt_boxes)
 
-        # shape = (Batch * True_Label_count, )
+        # shape: (batch * max_bboxes_count, ) -> (total_True_Label_count, )
         gt_boxes_ids = tf.boolean_mask(gt_boxes_ids, non_zeros_mask)
 
         rois_from_feature_maps = []
-
+        # list: (Fpn_level, Batch, fmap_shape, fmap_shape, 256)
         for i, batch_feature_map in enumerate(list_batch_feature_maps):
+            # batch_feature_map: (Batch, fmap_shape, fmap_shape, 256)
             # [8, 16, 32, 64, 128]
             stride = tf.constant(self.strides[i], dtype=tf.float32)
             feature_map_height = tf.cast(tf.shape(batch_feature_map)[1], dtype=tf.float32)
             feature_map_width = tf.cast(tf.shape(batch_feature_map)[2], dtype=tf.float32)
 
-            # shape = (batch_size * true_label_count, 4)
+            # shape = (total_True_label_count, 4)
             normalized_gt_boxes = normalize_boxes(boxes=batch_gt_true_boxes,
                                                   width=feature_map_width,
                                                   height=feature_map_height,
@@ -69,12 +70,10 @@ class FeatureSelectInput(keras.layers.Layer):
                                            crop_size=(self.pool_size, self.pool_size)
                                            )
 
-            # [roi, roi, roi, ..., roi]'s length = 5
+            # rois_from_fmaps: (Fpn_level, ) - (total_true_label_count, pool_size, pool_size, 256)
             rois_from_feature_maps.append(roi)
 
-        # (batch_size * true_label_count, pool_size, pool_size, feature_map_channel * 5)
-        # In paper : (Batch * True_Label_count, 7, 7, 1280)
-        # shape = (Batch * True_Label_count, )
+        # (total_True_label_count, pool_size, pool_size, feature_map_channel * 5)
         rois = tf.concat(rois_from_feature_maps, axis=-1)
         return rois, gt_boxes_ids
 
@@ -346,12 +345,13 @@ def _build_map_function_top_soft_weight(soft_weight, top_k=3):
 
 
 # refactor - 20211105
+@tf.function(jit_compile=True)
 def _build_map_function_top_soft_weight_test(soft_weight, top_k=3):
     # soft_weight: (None, 5)
     # topk_value: (None, top_k)
-    topk_min = tf.math.top_k(soft_weight, k=top_k)[0][..., -1, None]
+    topk_min = tf.math.top_k(soft_weight, k=top_k + 1)[0][..., -1, None]
 
-    boolean_mask = soft_weight <= topk_min
+    boolean_mask = soft_weight > topk_min
 
     return tf.where(
         boolean_mask,

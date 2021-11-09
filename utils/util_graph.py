@@ -90,4 +90,5 @@ def trim_zero_padding_boxes(boxes):
 
 
 if __name__ == '__main__':
-    print(feature_maps_shape_gen(1, 5))
+    pass
+    # print(feature_maps_shape_gen(1, 5))

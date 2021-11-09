@@ -2,12 +2,11 @@ import tensorflow.keras as keras
 import keras_resnet.models
 import tensorflow as tf
 from utils.util_graph import trim_zero_padding_boxes, normalize_boxes, shrink_and_normalize_boxes
-from models.losses2 import q_focal
-from models.osd import _create_pyramid_features, PriorProbability, FixedValueBiasInitializer
-from models.layers import Locations2, RegressionBoxes2, ClipBoxes2, FilterDetections2, ws_reg, BatchNormalization
-from tensorflow_addons.layers import GroupNormalization
-import config
+from models.losses_add import q_focal
+from models.neck.fpn import create_pyramid_features_v2
+from models.layers import Locations2, RegressionBoxes2, ClipBoxes2, FilterDetections2
 from models.losses import FocalLoss, IoULoss, FSNLoss, compute_iou, compute_focal
+import config
 
 NUM_CLS = config.NUM_CLS
 STRIDES = (8, 16, 32, 64, 128)
@@ -44,7 +43,7 @@ class FeatureSelectInput(keras.layers.Layer):
         # non_zeros_mask:  (Batch * Max_Bboxes_count, )
         batch_gt_true_boxes, non_zeros_mask = trim_zero_padding_boxes(batch_gt_boxes)
 
-        # shape: (batch * max_bboxes_count, ) -> (total_True_Label_count, )
+        # (batch * max_bboxes_count, ) -> (total_True_Label_count, )
         gt_boxes_ids = tf.boolean_mask(gt_boxes_ids, non_zeros_mask)
 
         rois_from_feature_maps = []
@@ -56,14 +55,14 @@ class FeatureSelectInput(keras.layers.Layer):
             feature_map_height = tf.cast(tf.shape(batch_feature_map)[1], dtype=tf.float32)
             feature_map_width = tf.cast(tf.shape(batch_feature_map)[2], dtype=tf.float32)
 
-            # shape = (total_True_label_count, 4)
+            # (total_True_label_count, 4)
             normalized_gt_boxes = normalize_boxes(boxes=batch_gt_true_boxes,
                                                   width=feature_map_width,
                                                   height=feature_map_height,
                                                   stride=stride
                                                   )
 
-            # shape = (batch_size * true_label_count, pool_size, pool_size, feature_map_channel)
+            # (batch_size * true_label_count, pool_size, pool_size, feature_map_channel)
             roi = tf.image.crop_and_resize(image=batch_feature_map,
                                            boxes=normalized_gt_boxes,
                                            box_indices=gt_boxes_ids,
@@ -78,8 +77,8 @@ class FeatureSelectInput(keras.layers.Layer):
         return rois, gt_boxes_ids
 
     def compute_output_shape(self, input_shape):
-        # shape = (Batch * True_Label_count, pool_size, pool_size, concatenate feature maps),
-        # shape = (Batch * true_Label_count, )
+        # shape = (total_true_Label_count, pool_size, pool_size, fpn_level * fpn_channel),
+        # shape = (total_true_Label_count, )
         return [[None, self.pool_size, self.pool_size, None], [None, ]]
 
     def get_config(self):
@@ -249,7 +248,7 @@ def _build_map_function_feature_select_target(
         )
         level_losses.append(level_loss)
 
-    # (5, True_Label_count) -> (True_Label_count, 5)
+    # list: (True_Label_count, ) - (5, ) -> (True_Label_count, 5)
     losses = tf.stack(level_losses, axis=-1)
 
     # (True_Label_count, 1)
@@ -299,13 +298,13 @@ class FeatureSelectTarget(keras.layers.Layer):
             fn_output_signature=tf.int32
         )
 
-        # """ If Batch = 2, Batch0 got 4 instances, and Batch1 got 3 instances. """
         # (Batch * Max_Bboxes_count, )
         batch_boxes_level = tf.reshape(batch_boxes_level, (-1,))
-        # (sum(Batch_True_Label_count), )
+        # (Batch * Max_Bboxes_count, )
         mask = tf.not_equal(batch_boxes_level, -1)
-        #  (sum(Batch_True_Label_count), ) = (4 + 3, )
-        return tf.boolean_mask(batch_boxes_level, mask)
+        # (total_true_label_count, )
+        batch_boxes_level = tf.boolean_mask(batch_boxes_level, mask)
+        return batch_boxes_level
 
     def compute_output_shape(self, input_shape):
         # (B * True_Label_count, )
@@ -345,7 +344,7 @@ def _build_map_function_top_soft_weight(soft_weight, top_k=3):
 
 
 # refactor - 20211105
-@tf.function(jit_compile=True)
+# @tf.function(jit_compile=True)
 def _build_map_function_top_soft_weight_test(soft_weight, top_k=3):
     # soft_weight: (None, 5)
     # topk_value: (None, top_k)
@@ -357,29 +356,6 @@ def _build_map_function_top_soft_weight_test(soft_weight, top_k=3):
         boolean_mask,
         soft_weight,
         0.
-    )
-
-
-# 2020-11-04, 選取最高3個權重 Normal (限Soft Weight)
-def _build_map_function_top_soft_weight_v2(soft_weight, top_k=3):
-    assert 6 > top_k > 0
-
-    def build_map_function_top(args):
-        instance_weight = args[0]
-        values, ids = tf.math.top_k(instance_weight, k=top_k)
-        min_weight = tf.math.reduce_min(values)
-        sum_val = tf.math.reduce_sum(values)
-        output = tf.where(
-            tf.greater_equal(instance_weight, min_weight),
-            instance_weight / sum_val,
-            0.,
-        )
-        return output
-
-    return tf.map_fn(
-        build_map_function_top,
-        elems=[soft_weight],
-        dtype=tf.float32
     )
 
 
@@ -450,7 +426,7 @@ class FeatureSelectWeight_V1(keras.layers.Layer):
         return c
 
 
-class FeatureSelectWeight_V1_1(keras.layers.Layer):
+class FeatureSelectWeight_V2(keras.layers.Layer):
     def __init__(self,
                  max_gt_boxes_count=100,
                  soft=True,
@@ -459,7 +435,7 @@ class FeatureSelectWeight_V1_1(keras.layers.Layer):
         self.max_gt_boxes_count = max_gt_boxes_count
         self.soft = soft
 
-        super(FeatureSelectWeight_V1_1, self).__init__(**kwargs)
+        super(FeatureSelectWeight_V2, self).__init__(**kwargs)
 
     def call(self, inputs, **kwargs):
         # If Batch size = 1
@@ -502,57 +478,6 @@ class FeatureSelectWeight_V1_1(keras.layers.Layer):
     def compute_output_shape(self, input_shape):
         # (Batch, Max_Bboxes_count, 5) = (1, 100, 5)
         return input_shape[1][0], self.max_gt_boxes_count, 5
-
-    def get_config(self):
-        c = super(FeatureSelectWeight_V1_1, self).get_config()
-        c.update(
-            max_gt_boxes_count=self.max_gt_boxes_count,
-            soft=self.soft
-        )
-        return c
-
-
-class FeatureSelectWeight_V2(keras.layers.Layer):
-    def __init__(self,
-                 max_gt_boxes_count=100,
-                 soft_loss_th=0.5,
-                 batch_size=1,
-                 **kwargs):
-        self.max_gt_boxes_count = max_gt_boxes_count
-        self.soft = soft_loss_th
-        self.batch_size = batch_size
-        super(FeatureSelectWeight_V2, self).__init__(**kwargs)
-
-    # @tf.function
-    def call(self, inputs, **kwargs):
-        # inputs[0]: feature_selective_pred
-        # inputs[1]: feature_selective_target
-        # inputs[2]: batch_gt_boxes_id
-        # inputs[3]: true_label_gt_boxes_count_input
-        # inputs[4]: feature_selective_loss
-
-        gt_boxes_select_weight = tf.cond(
-            inputs[4][..., 0] < self.soft_loss_th,
-            lambda: _build_map_function_top_soft_weight(inputs[0], top_k=3),
-            lambda: tf.one_hot(inputs[1], 5)
-        )
-
-        gt_boxes_batch_ids = inputs[2]
-
-        batch_true_label_gt_boxes_count = inputs[3][..., 0]
-
-        batch_select_weight = _batch_select_weight(
-            batch_true_label_gt_boxes_count=batch_true_label_gt_boxes_count,
-            max_gt_boxes_count=self.max_gt_boxes_count,
-            gt_boxes_select_weight=gt_boxes_select_weight,
-            gt_boxes_batch_ids=gt_boxes_batch_ids
-        )
-
-        return batch_select_weight
-
-    def compute_output_shape(self, input_shape):
-        # (Batch, Max_Bboxes_count, 5) = (1, 100, 5)
-        return input_shape[2][0], self.max_gt_boxes_count, 5
 
     def get_config(self):
         c = super(FeatureSelectWeight_V2, self).get_config()
@@ -659,8 +584,7 @@ def _build_map_function_module_target(
 
                 """ Classification Target: create positive sample """
                 level_pos_box_cls_target = tf.zeros((pos_y2_ - pos_y1_, pos_x2_ - pos_x1_, num_cls), dtype=tf.float32)
-                level_pos_box_gt_label_col = tf.ones((pos_y2_ - pos_y1_, pos_x2_ - pos_x1_, 1),
-                                                     dtype=tf.float32)
+                level_pos_box_gt_label_col = tf.ones((pos_y2_ - pos_y1_, pos_x2_ - pos_x1_, 1), dtype=tf.float32)
                 level_pos_box_cls_target = tf.concat((level_pos_box_cls_target[..., :gt_label],
                                                       level_pos_box_gt_label_col,
                                                       level_pos_box_cls_target[..., gt_label + 1:]), axis=-1)
@@ -966,13 +890,6 @@ class Target(keras.layers.Layer):
         )
         return outputs
 
-    def compute_output_shape(self, input_shape):
-        batch_size = input_shape[0][0]
-        # (Batch_Size, All_Feature_map_accumulate, num_cls + 2); (Batch_Size, All_Feature_map_accumulate, 4 + 2)
-        # [[[Feature_map_location, class_0, ..., class_num_cls, soft_weight, mask]]]
-        return [[batch_size, None, self.num_cls + 2],
-                [batch_size, None, 4 + 2]]
-
     def get_config(self):
         c = super(Target, self).get_config()
         c.update(
@@ -981,397 +898,6 @@ class Target(keras.layers.Layer):
             }
         )
         return c
-
-
-# Org : GlobalAveragePooling
-# 2020-11-29, change to GlobalMaxPooling
-def _build_feature_select_model_V1(width=256, depth=3, pool_size=7, fpn_output_level_count=5):
-    setting = {
-        'kernel_size': 3,
-        'strides': 1,
-        # 'padding': 'same',
-        'kernel_initializer': keras.initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None),
-        'bias_initializer': 'zeros'
-    }
-
-    inputs = keras.layers.Input((pool_size, pool_size, width * fpn_output_level_count))
-    outputs = inputs
-
-    for _ in range(depth):
-        outputs = keras.layers.Conv2D(filters=width,
-                                      activation='relu',
-                                      **setting
-                                      )(outputs)
-        # 2020-10-07, 改用Swish.
-        # outputs = keras.layers.Lambda(lambda x: tf.nn.swish(x))(outputs)
-
-    # 2020-10-13, Flatten to Global Max Pooling.
-    outputs = keras.layers.Flatten()(outputs)
-    # outputs = keras.layers.GlobalAveragePooling2D()(outputs)
-    # outputs = keras.layers.GlobalMaxPool2D()(outputs)
-
-    outputs = keras.layers.Dense(fpn_output_level_count,
-                                 kernel_initializer=keras.initializers.RandomNormal(mean=0.0,
-                                                                                    stddev=0.01,
-                                                                                    seed=None),
-                                 bias_initializer='zeros',
-                                 activation='softmax'
-                                 )(outputs)
-    return keras.models.Model(inputs, outputs, name='feature_select_network')
-
-
-def __layer_normalization_V1(input_layer, gn=0, bn=0, bcn=0, groups=32):
-    if gn:
-        output_layer = GroupNormalization(groups=groups, epsilon=1e-5)(input_layer)
-
-    elif bn:
-        output_layer = BatchNormalization(axis=3, epsilon=1e-5, freeze=False)(input_layer)
-
-    elif bcn:
-        output_layer = BatchNormalization(axis=3, epsilon=1e-5, freeze=False)(input_layer)
-        output_layer = GroupNormalization(groups=groups, epsilon=1e-5)(output_layer)
-
-    else:
-        output_layer = input_layer
-
-    return output_layer
-
-
-# 2021-01-05, Mix Head V1: 3th conv2d of Reg used 3 by 3 and combined with cls.
-def _build_Mix_head_V1(input_width=256, width=256, depth=4, num_cls=20, gn=True, groups=32, fusion='cp'):
-    setting = {
-        'kernel_size': 3,
-        'strides': 1,
-        'padding': 'same',
-        'kernel_initializer': keras.initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None)
-    }
-
-    inputs = keras.layers.Input((None, None, input_width))
-    outputs_cls = inputs
-    outputs_reg = inputs
-
-    """ Regression """
-    # region 2021-0105, Regression and Branch
-
-    for _ in range(depth - 1):
-        outputs_reg = keras.layers.Conv2D(
-            filters=width,
-            activation='relu',
-            bias_initializer='zeros',
-            **setting
-        )(outputs_reg)
-
-    outputs_reg_branch = keras.layers.Conv2D(
-        filters=width,
-        activation='relu',
-        bias_initializer='zeros',
-        **setting
-    )(outputs_reg)
-
-    outputs_reg = keras.layers.Conv2D(
-        filters=4,
-        activation='relu',
-        bias_initializer=FixedValueBiasInitializer(0.1),
-        **setting
-    )(outputs_reg_branch)
-    outputs_reg = keras.layers.Reshape((-1, 4), name='reg_reshape')(outputs_reg)
-
-    # endregion
-
-    # region 2021-0105, Cls Head Input: reg_branch combined with cls (Complete Method)
-
-    outputs_reg_branch = keras.layers.Conv2D(
-        filters=width,
-        bias_initializer='zeros',
-        **setting
-    )(outputs_reg_branch)
-    if gn:
-        outputs_reg_branch = GroupNormalization(groups=groups, epsilon=1e-5)(outputs_reg_branch)
-
-    outputs_reg_branch = keras.layers.Activation('relu')(outputs_reg_branch)
-
-    outputs_cls = keras.layers.Conv2D(
-        filters=width,
-        bias_initializer='zeros',
-        **setting
-    )(outputs_cls)
-    if gn:
-        outputs_cls = GroupNormalization(groups=groups, epsilon=1e-5)(outputs_cls)
-
-    outputs_cls = keras.layers.Activation('relu')(outputs_cls)
-
-    if fusion == 'cp':
-        outputs_cls = keras.layers.Lambda(lambda x: x[0] + x[1] - x[0] * x[1])([outputs_reg_branch, outputs_cls])
-    else:
-        outputs_cls = keras.layers.Add()([outputs_reg_branch, outputs_cls])
-
-    # endregion
-
-    # region 2021-0105, Classification Head Model (GN + WS)
-
-    for i in range(depth):
-        outputs_cls = keras.layers.Conv2D(
-            filters=width,
-            bias_initializer='zeros',
-            kernel_regularizer=ws_reg if gn else None,
-            **setting
-        )(outputs_cls)
-        if gn:
-            outputs_cls = GroupNormalization(groups=groups, epsilon=1e-5)(outputs_cls)
-
-        outputs_cls = keras.layers.Activation('relu')(outputs_cls)
-
-    outputs_cls = keras.layers.Conv2D(
-        filters=num_cls,
-        bias_initializer=PriorProbability(probability=0.01),
-        activation='sigmoid',
-        kernel_regularizer=ws_reg if gn else None,
-        **setting
-    )(outputs_cls)
-    outputs_cls = keras.layers.Reshape((-1, num_cls), name='cls_reshape')(outputs_cls)
-
-    # endregion
-
-    return keras.models.Model(inputs, outputs=[outputs_cls, outputs_reg], name='mix_head_model')
-
-
-# conv2d(WS)-gn-relu
-def _build_Mix_head_V1S(input_width=256, width=256, depth=4, num_cls=20, fusion='cp', **kwargs):
-    setting = {
-        'kernel_size': 3,
-        'strides': 1,
-        'padding': 'same',
-        'kernel_initializer': keras.initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None)
-    }
-
-    setting_2 = {
-        'kernel_size': 3,
-        'strides': 1,
-        'padding': 'same',
-        'kernel_initializer': keras.initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None)
-    }
-
-    inputs = keras.layers.Input((None, None, input_width))
-    outputs_cls = inputs
-    outputs_reg = inputs
-
-    """ Regression """
-    # region 2021-0105, Regression and Branch
-    for i in range(depth - 1):
-        outputs_reg = keras.layers.Conv2D(
-            filters=width,
-            activation='relu',
-            bias_initializer='zeros',
-            name=f'reg_b{i}',
-            **setting
-        )(outputs_reg)
-
-    outputs_reg_branch = keras.layers.Conv2D(
-        filters=width,
-        activation='relu',
-        bias_initializer='zeros',
-        name=f'reg_b{depth}',
-        **setting
-    )(outputs_reg)
-
-    outputs_reg = keras.layers.Conv2D(
-        filters=4,
-        bias_initializer=FixedValueBiasInitializer(0.1),
-        activation='relu',
-        name='reg_output',
-        **setting
-    )(outputs_reg_branch)
-    outputs_reg = keras.layers.Reshape((-1, 4), name='reg_reshape')(outputs_reg)
-    # endregion
-
-    # region 2021-0105, Cls Head Input: reg_branch combined with cls (Complete Method)
-    outputs_reg_branch = keras.layers.Conv2D(
-        filters=width,
-        bias_initializer='zeros',
-        kernel_regularizer=ws_reg,
-        **setting_2
-    )(outputs_reg_branch)
-
-    outputs_reg_branch = __layer_normalization_V1(input_layer=outputs_reg_branch, **kwargs)
-    outputs_reg_branch = keras.layers.Activation('relu')(outputs_reg_branch)
-
-    outputs_cls = keras.layers.Conv2D(
-        filters=width,
-        bias_initializer='zeros',
-        kernel_regularizer=ws_reg,
-        **setting
-    )(outputs_cls)
-
-    outputs_cls = __layer_normalization_V1(input_layer=outputs_cls, **kwargs)
-    outputs_cls = keras.layers.Activation('relu')(outputs_cls)
-
-    if fusion == 'cp':
-        outputs_cls = keras.layers.Lambda(lambda x: x[0] + x[1] - x[0] * x[1])([outputs_reg_branch, outputs_cls])
-
-    else:
-        outputs_cls = keras.layers.Add()([outputs_reg_branch, outputs_cls])
-    # endregion
-
-    # region 2021-0105, Classification Head Model (GN + WS)
-    for i in range(depth):
-        outputs_cls = keras.layers.Conv2D(
-            filters=width,
-            bias_initializer='zeros',
-            kernel_regularizer=ws_reg,
-            name=f'cls_b{i}',
-            **setting
-        )(outputs_cls)
-
-        outputs_cls = __layer_normalization_V1(input_layer=outputs_cls, **kwargs)
-        outputs_cls = keras.layers.Activation('relu')(outputs_cls)
-
-    outputs_cls = keras.layers.Conv2D(
-        filters=num_cls,
-        bias_initializer=PriorProbability(probability=0.01),
-        activation='sigmoid',
-        kernel_regularizer=ws_reg,  # 20210414  Default: Have WS
-        name='cls_output',
-        **setting
-    )(outputs_cls)
-    outputs_cls = keras.layers.Reshape((-1, num_cls), name='cls_reshape')(outputs_cls)
-    # endregion
-
-    return keras.models.Model(inputs, outputs=[outputs_cls, outputs_reg], name='mix_head_model')
-
-
-# Standard Subnetwork(Head)
-def _build_cls_head_V1(width=256, depth=4, num_cls=20, normal=0):
-    setting = {
-        'kernel_size': 3,
-        'strides': 1,
-        'padding': 'same',
-        'kernel_initializer': keras.initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None)
-    }
-
-    inputs = keras.layers.Input((None, None, width))
-    outputs = inputs
-
-    for _ in range(depth):
-        outputs = keras.layers.Conv2D(
-            filters=width,
-            bias_initializer='zeros',
-            activation='relu',
-            **setting
-        )(outputs)
-
-        if normal == 1:
-            outputs = GroupNormalization(groups=32, epsilon=1e-5)(outputs)
-
-    outputs = keras.layers.Conv2D(
-        filters=num_cls,
-        bias_initializer=PriorProbability(probability=0.01),
-        activation='sigmoid',
-        **setting
-    )(outputs)
-
-    outputs = keras.layers.Reshape((-1, num_cls), name='cls_reshape')(outputs)
-    return keras.models.Model(inputs, outputs, name='cls_head_model')
-
-
-# Standard Subnetwork(Head)
-def _build_reg_head_V1(width=256, depth=4):
-    setting = {
-        'kernel_size': 3,
-        'strides': 1,
-        'padding': 'same',
-        'activation': 'relu',
-        'kernel_initializer': keras.initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None)
-    }
-
-    inputs = keras.layers.Input((None, None, width))
-    outputs = inputs
-
-    for _ in range(depth):
-        outputs = keras.layers.Conv2D(
-            filters=width,
-            bias_initializer='zeros',
-            **setting
-        )(outputs)
-
-    outputs = keras.layers.Conv2D(filters=4,
-                                  bias_initializer=FixedValueBiasInitializer(0.1),
-                                  **setting)(outputs)
-
-    outputs = keras.layers.Reshape((-1, 4), name='reg_reshape')(outputs)
-    return keras.models.Model(inputs, outputs, name='reg_head_model')
-
-
-# 2021-01-05, GN with WS, Details: Group Normalization and Weight Standard
-# conv2d(WS)-gn-relu
-def __build_feature_select_model_V3(input_width=256, width=256, depth=3, pool_size=7, fpn_output_level_count=5,
-                                    **kwargs):
-    setting = {
-        'kernel_size': 3,
-        'strides': 1,
-        'padding': 'same',
-        'kernel_initializer': keras.initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None),
-        'bias_initializer': 'zeros'
-    }
-
-    inputs = keras.layers.Input((pool_size, pool_size, input_width * fpn_output_level_count))
-    outputs = inputs
-
-    for i in range(depth):
-        outputs = keras.layers.Conv2D(
-            filters=width,
-            kernel_regularizer=ws_reg,
-            **setting
-        )(outputs)
-
-        outputs = __layer_normalization_V1(input_layer=outputs, **kwargs)
-        outputs = keras.layers.Activation('relu')(outputs)
-
-    # 2020-11-18, Flatten to Global Average Pooling.
-    outputs = keras.layers.GlobalAveragePooling2D()(outputs)
-    outputs = keras.layers.Dense(
-        fpn_output_level_count,
-        kernel_initializer=keras.initializers.RandomNormal(mean=0.0,
-                                                           stddev=0.01,
-                                                           seed=None),
-        bias_initializer='zeros',
-        activation='softmax'
-    )(outputs)
-    return keras.models.Model(inputs, outputs, name='feature_select_network')
-
-
-def __build_feature_select_model_V3_RCG(input_width=256, width=256, depth=3, pool_size=7, fpn_output_level_count=5,
-                                        **kwargs):
-    setting = {
-        'kernel_size': 3,
-        'strides': 1,
-        'padding': 'same',
-        'kernel_initializer': keras.initializers.RandomNormal(mean=0.0, stddev=0.01, seed=None),
-        'bias_initializer': 'zeros'
-    }
-
-    inputs = keras.layers.Input((pool_size, pool_size, input_width * fpn_output_level_count))
-    outputs = inputs
-
-    for i in range(depth):
-        outputs = keras.layers.Activation('relu')(outputs)
-        outputs = keras.layers.Conv2D(
-            filters=width,
-            kernel_regularizer=ws_reg,
-            **setting
-        )(outputs)
-        outputs = __layer_normalization_V1(input_layer=outputs, **kwargs)
-
-    # 2020-11-18, Flatten to Global Average Pooling.
-    outputs = keras.layers.GlobalAveragePooling2D()(outputs)
-    outputs = keras.layers.Dense(
-        fpn_output_level_count,
-        kernel_initializer=keras.initializers.RandomNormal(mean=0.0,
-                                                           stddev=0.01,
-                                                           seed=None),
-        bias_initializer='zeros',
-        activation='softmax'
-    )(outputs)
-    return keras.models.Model(inputs, outputs, name='feature_select_network')
 
 
 def freeze_model_bn(model_):
@@ -1391,7 +917,7 @@ def freeze_model_half(model_):
 
 
 # 2020-10-14, Build BackBone
-def _build_backbone_V1(resnet=50, image_input=None, freeze_bn=False):
+def _build_backbone(resnet=50, image_input=None, freeze_bn=False):
     setting = {
         'inputs': image_input,
         'include_top': False,
@@ -1501,57 +1027,25 @@ def _build_head_subnets(input_features, width, depth, num_cls):
     if config.HEAD == 'Mix':
         from models.head import MixSubnetworks
         cls_pred, reg_pred = MixSubnetworks(**_setting)
-        # return cls_pred, reg_pred
 
     elif config.HEAD == 'Std':
         from models.head import StdSubnetworks
         cls_pred, reg_pred = StdSubnetworks(**_setting)
-        # return cls_pred, reg_pred
-        # cls_model = _build_cls_head_V1(width=width, depth=depth, num_cls=num_cls, normal=0)
-        # reg_model = _build_reg_head_V1(width=width, depth=depth)
-        # for feature in input_features:
-        #     cls_pred.append(cls_model(feature))
-        #     reg_pred.append(reg_model(feature))
 
     elif config.HEAD == 'Align':
         from models.head import AlignSubnetworks
         cls_pred, reg_pred = AlignSubnetworks(**_setting)
-        # return cls_pred, reg_pred
 
-    # cls_pred = keras.layers.Concatenate(axis=1, name='classification')(cls_pred)
-    # reg_pred = keras.layers.Concatenate(axis=1, name='regression')(reg_pred)
-    # return cls_pred, reg_pred
     return cls_pred, reg_pred
 
 
 def _build_FSN(width):
     if config.FSN == 'V3':
-        # feature_select_model = __build_feature_select_model_V3(
-        #     input_width=256, width=width, depth=3, pool_size=config.FSN_POOL_SIZE,
-        #     fpn_output_level_count=len(STRIDES),
-        #     gn=1, groups=config.HEAD_GROUPS,
-        # )
-        # return feature_select_model
         from models.neck import FSN
         return FSN(
             width=width, depth=3,
             fpn_level=len(STRIDES), ws=config.FSN_WS
         )
-
-    elif config.FSN == 'V3_RCG':
-        feature_select_model = __build_feature_select_model_V3_RCG(
-            input_width=256, width=width, depth=3,
-            fpn_output_level_count=len(STRIDES),
-            gn=1, groups=32
-        )
-        return feature_select_model
-
-    elif config.FSN == 'V1':
-        feature_select_model = _build_feature_select_model_V1(
-            width=width, depth=3,
-            fpn_output_level_count=len(STRIDES),
-        )
-        return feature_select_model
 
 
 # 2020-10-14, Feature Select Model.
@@ -1565,7 +1059,11 @@ def SAPD(
         resnet=50,
         freeze_bn=False
 ):
-    """ Model Input """
+    """
+        soft : True for using soft weight, False for Top-1 weight
+        num_cls : number of classes
+        max_gt_boxes: maximum of total bboxes
+    """
     # Image Input: 影像, 限定Channel.
     image_input = keras.layers.Input((None, None, 3), name='image')
     # Gt Boxes Input: 真實框, [x1, y1, x2, y2, class]
@@ -1576,11 +1074,11 @@ def SAPD(
     feature_maps_shape_input = keras.layers.Input((5, 2), dtype=tf.int32, name='fmaps_shape')
 
     """ Creating Backbone """
-    backbone = _build_backbone_V1(resnet=resnet, image_input=image_input, freeze_bn=freeze_bn)
+    backbone = _build_backbone(resnet=resnet, image_input=image_input, freeze_bn=freeze_bn)
     C3, C4, C5 = backbone.outputs[1:] if config.BACKBONE_TYPE == 'ResNetV1' else backbone
 
     """ Creating Feature Pyramid Network """
-    features = _create_pyramid_features(C3, C4, C5, n=0)
+    features = create_pyramid_features_v2(C3, C4, C5, n=0)
 
     """ Creating Subnetworks """
     model_pred = _build_head_subnets(
@@ -1589,9 +1087,6 @@ def SAPD(
         depth=depth,
         num_cls=num_cls
     )
-
-    # cls_pred = keras.layers.Concatenate(axis=1, name='classification')(cls_pred)
-    # reg_pred = keras.layers.Concatenate(axis=1, name='regression')(reg_pred)
 
     """ Feature Selection Network """
     feature_select_model = _build_FSN(width=width)
@@ -1618,8 +1113,8 @@ def SAPD(
     #     name='feature_select_loss'
     # )([feature_select_target, feature_select_pred])
 
-    """ Soft Anchor weights """
-    weight = FeatureSelectWeight_V1_1(max_gt_boxes_count=max_gt_boxes, soft=soft)([
+    """ Soft Anchor-point weights """
+    weight = FeatureSelectWeight_V2(max_gt_boxes_count=max_gt_boxes, soft=soft)([
         feature_select_pred if soft else feature_select_target,
         batch_gt_boxes_id,
         true_label_gt_boxes_count_input

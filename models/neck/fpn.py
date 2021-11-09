@@ -91,7 +91,7 @@ class FPN(keras.Model):
         return c
 
 
-def _create_pyramid_features(C3, C4, C5, feature_size=256, n=0):
+def create_pyramid_features(C3, C4, C5, feature_size=256, n=0):
     """
     :param C3:
     :param C4:
@@ -130,6 +130,73 @@ def _create_pyramid_features(C3, C4, C5, feature_size=256, n=0):
     # P4_upsampled : (None, 80, 80, 256)
     P4_upsampled = layers.UpsampleLike(name='P4_upsampled')([P4, C3])
 
+    # P4 : (None, 40, 40, 256)
+    P4 = keras.layers.Conv2D(kernel_size=3, **setting, name='P4')(P4)
+
+    # P3 : (None, 80, 80, 256)
+    P3 = keras.layers.Conv2D(kernel_size=1, **setting, name='C3_reduced')(C3)
+    P3 = keras.layers.Add(name='P3_merge')([P4_upsampled, P3])
+    P3 = keras.layers.Conv2D(kernel_size=3, **setting, name='P3')(P3)
+
+    # P6 : (None, 10, 10, 256)
+    P6 = keras.layers.Conv2D(**down_setting, name='P6')(C5)
+    if n:
+        P6 = GroupNormalization(name='P6_gn')(P6)
+    P6_relu = keras.layers.Activation('relu', name='P6_relu')(P6)
+
+    # P7 : (None, 5, 5, 256)
+    P7 = keras.layers.Conv2D(**down_setting, name='P7')(P6_relu)
+
+    if n:
+        P7 = GroupNormalization(name='P7_gn')(P7)
+        P5 = GroupNormalization(name='P5_gn')(P5)
+        P4 = GroupNormalization(name='P4_gn')(P4)
+        P3 = GroupNormalization(name='P3_gn')(P3)
+
+    return [P3, P4, P5, P6, P7]
+
+
+def create_pyramid_features_v2(C3, C4, C5, feature_size=256, n=0):
+    """
+    :param C3:
+    :param C4:
+    :param C5:
+    :param feature_size:
+    :return:
+    """
+    # C3 : (None, 80, 80, 128)
+    # C4 : (None, 40, 40, 256)
+    # C5 : (None, 20, 20, 512)
+
+    setting = {
+        'filters': feature_size,
+        'strides': 1,
+        'padding': 'same'
+    }
+
+    down_setting = {
+        'filters': feature_size,
+        'kernel_size': 3,
+        'strides': 2,
+        'padding': 'same'
+    }
+
+    # P5 : (None, 20, 20, 256)
+    P5 = keras.layers.Conv2D(kernel_size=1, **setting, name='C5_reduced')(C5)
+    # P5_upsampled : (None, 40, 40, 256)
+    P5_upsampled = layers.UpsampleLike(name='P5_upsampled')([P5, C4])
+    # P5_upsampled_2 = dilated_block(input_layer=P5_upsampled, width=feature_size, name='P5')
+    # P5_upsampled_2 = layers.UpsampleLike(name='P5_upsampled_2')([P5_upsampled_2, C4])
+    # P5 : (None, 20, 20, 256)
+    P5 = keras.layers.Conv2D(kernel_size=3, **setting, name='P5')(P5)
+
+    # P4 : (None, 40, 40, 256)
+    P4 = keras.layers.Conv2D(kernel_size=1, **setting, name='C4_reduced')(C4)
+    P4 = keras.layers.Add(name='P4_merge')([P5_upsampled, P4])
+    # P4_upsampled : (None, 80, 80, 256)
+    P4_upsampled = layers.UpsampleLike(name='P4_upsampled')([P4, C3])
+    # P4_upsampled_2 = dilated_block(input_layer=P4_upsampled, width=feature_size, name='P4')
+    # P4_upsampled_2 = layers.UpsampleLike(name='P4_upsampled_2')([P4_upsampled_2, C3])
     # P4 : (None, 40, 40, 256)
     P4 = keras.layers.Conv2D(kernel_size=3, **setting, name='P4')(P4)
 

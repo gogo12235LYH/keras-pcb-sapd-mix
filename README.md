@@ -12,10 +12,10 @@ Soft-Anchor Point Detector(SAPD), Tensorflow 2.6, Keras
 
 ## :fire: To Do List
 
-1. 完成 README.md
-2. ~~資料集轉換 (tfds 建立)~~ Done -> [build-tfds](https://github.com/gogo12235LYH/build-tfds) 
-3. 透過 tf.data 取代 keras.Sequence 來增加 GPU使用率 (目前測試多卡訓練，在linux可使用keras sequence
-則windows 就必須使用 tf.data才能夠穩定使用多卡訓練)
+1. ~~完成 README.md~~ < 應該算完成了
+2. ~~資料集轉換 (tfds 建立)~~ Done < [build-tfds](https://github.com/gogo12235LYH/build-tfds) 
+3. ~~透過 tf.data 取代 keras.Sequence 來增加 GPU使用率 (目前測試多卡訓練，在linux可使用keras sequence
+則windows 就必須使用 tf.data才能夠穩定使用多卡訓練)~~ < tf.data，建議依據自己的環境來優化
 
 ## 目錄
 
@@ -63,6 +63,8 @@ To enable them in other operations, rebuild TensorFlow with the appropriate comp
 [INFO] Testing ... Done.
 ```
 
+---
+
 ## 2. 訓練-Training
 
 在 [SAPD](https://arxiv.org/abs/1911.12448) 研究中說明到訓練時， 可在前期訓練將 Feature Selection Network (FSN) 預測權重設定為擁有最低損失的特徵金字塔層(FSN 的
@@ -75,8 +77,8 @@ ground truth)， 後續訓練則選擇預測結果前三高來進行訓練時的
 1. MODE 可分為2大類，分別為 "FSN Top-1 與 Top-k 的 Stage 1 及 Stage 2 訓練模式" 及
    "只有 FSN Top-k 的訓練模式"，細分四種模式。
 2. 訓練影像解析度可由 PHI 來調整。
-3. ~~若使用單機多卡的訓練策略，MULTI_GPU = 1 (建議在非 Windows 平台使用)。~~
-(目前多卡訓練，餵資料待須將 Keras.Sequential 轉換為 tf.data)
+3. 啟用單機多卡訓練時，要注意 BATCH_SIZE，舉例來說，若此參數設置為 32，且擁有 4 張顯卡情況下，則每彰顯卡分配 8 張影像進行訓練。
+4. 承上，在 Linux 下，可使用 tf.data 及 keras.sequence; 而 windows 必須使用 tf.data
 
 ```python
 MODE = 1  # MODE = 1: Stage One; MODE = 2: Stage Two; MODE = 3: Top-1 Weight; MODE = 4: Top-5 Weight.
@@ -123,7 +125,7 @@ SUBNET_DEPTH = 4  # Depth of Head Subnetworks
 
 ### 2.4 損失函數
 
-分類問題透過 Focal Loss (FL) 進行損失值評估及學習，目前也在測試 QFL 中。輸出預選框則透過 IoU Loss 也就是重疊度損失， 目前提供 IoU, GIoU 及 CIoU 選用。都採用 XLA 做加速。
+分類問題透過 Focal Loss (FL) 進行損失值評估及學習，目前也在測試 QFL 中。輸出預選框則透過 IoU Loss 也就是重疊度損失， 目前提供 IoU, GIoU 及 CIoU 選用。都採用 XLA 做加速(大大減少訓練時間)。
 
 CIoU 方面提供 2 種重現 :
 
@@ -175,6 +177,8 @@ Epoch 1/25
    8/1000 [..............................] - ETA: 16:00 - loss: 1.8903 - cls_loss_loss: 1.1315 - reg_loss_loss: 0.5946 - feature_select_loss_loss: 0.1642
 ```
 
+---
+
 ## 3. 評估-Evaluation
 
 透過 mean Average Precision (mAP) 評估模型預測效果，
@@ -192,9 +196,21 @@ Epoch 1/25
 
 ```python
 """ Model Detections: NMS, Proposal setting """
-NMS = 1  # 1 for NMS, 2 for Soft-NMS
-NMS_TH = 0.5  # intersect of union threshold in same detections
-DETECTIONS = 1000  # detecting proposals
+NMS = 1             # 1 for NMS, 2 for Soft-NMS
+NMS_TH = 0.5        # intersect of union threshold in same detections
+SCORE_TH = 0.01     # the threshold of object's confidence score
+DETECTIONS = 1000   # detecting proposals
+```
+
+使用 evaluation.py 進行評估，輸出結果為在不同重疊度下詳細的各類別AP，以及最終平均下的 mAP。
+
+```python
+if __name__ == '__main__':
+    init_()
+    main(
+        model_weight_path='20210921-DPCB100-HA116FV3-SGDW-E100BS8B1R50D4-soft.h5'
+    )
+    #   更換權重路徑即可
 ```
 
 ### 3.2 Deep PCB:
@@ -222,7 +238,7 @@ DETECTIONS = 1000  # detecting proposals
 | Mix   | R50 | x1, ws + gn | 0.7163 | 0.9995 | 0.8731 | 0.1641 |
 | Align |  -  |-            | - | - | - | - |
 
-### 3.4 VOC(僅參考，額外測試)
+### 3.4 VOC(僅供參考，額外測試)
 
 * 訓練及評估影像大小: 640 * 640 ( PHI=1 )
 * 如果 改用 R101 或是 更高的解析度，理論上數據( mAP )會繼續提升。
@@ -234,6 +250,8 @@ DETECTIONS = 1000  # detecting proposals
 | Std    | R50   | 50 epoch     | 0.5432 | 0.8004 | 0.5962 | 0.1927 |
 | Mix    | R50   | 50 epoch, gn | 0.5739 | 0.8160 | 0.6422 | 0.2413 |
 
+---
+
 ## 4. 推論-Inference
 
 ### Deep PCB 範例
@@ -243,6 +261,8 @@ DETECTIONS = 1000  # detecting proposals
 ![image](https://github.com/gogo12235LYH/keras-pcb-sapd-mix/blob/master/fig/pcbdd_temp_1.png)
 
 ![image](https://github.com/gogo12235LYH/keras-pcb-sapd-mix/blob/master/fig/pcbdd_temp_2.png)
+
+---
 
 ## 5. 參考-Reference
 

@@ -8,7 +8,7 @@ _此貢獻為記錄原始研究程式碼及數據成果，初始環境為 Ubuntu
 
 ---
 
-Soft-Anchor Point Detector(SAPD), Tensorflow 2.6, Keras
+Soft-Anchor Point Detector (SAPD), Printed Circuit Board (PCB), Defect Detection, Subnetworks
 
 ## :fire: To Do List
 

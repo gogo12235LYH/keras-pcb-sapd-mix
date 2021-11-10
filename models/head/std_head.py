@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from tensorflow import keras
+import tensorflow.keras as keras
 
 
 class StdHead(keras.Model):

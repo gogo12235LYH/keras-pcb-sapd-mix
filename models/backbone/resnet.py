@@ -1,7 +1,6 @@
 import tensorflow as tf
 from tensorflow import keras
 import tensorflow.keras.regularizers
-from models.layers import ws_reg
 from tensorflow_addons.layers import GroupNormalization
 
 parameters = {
@@ -46,7 +45,7 @@ def bottleneck_2d(
             y = keras.layers.BatchNormalization(axis=axis, epsilon=1e-5,
                                                 name="bn{}{}_branch2a".format(stage_char, block_char))(y)
         elif gn:
-            y = GroupNormalization(axis=axis, epsilon=1e-5, groups=groups,
+            y = GroupNormalization(epsilon=1e-5, groups=groups,
                                    name="gn{}{}_branch2a".format(stage_char, block_char))(y)
 
         y = keras.layers.Activation("relu", name="res{}{}_branch2a_relu".format(stage_char, block_char))(y)
@@ -60,7 +59,7 @@ def bottleneck_2d(
             y = keras.layers.BatchNormalization(axis=axis, epsilon=1e-5,
                                                 name="bn{}{}_branch2b".format(stage_char, block_char))(y)
         elif gn:
-            y = GroupNormalization(axis=axis, epsilon=1e-5, groups=groups,
+            y = GroupNormalization(epsilon=1e-5, groups=groups,
                                    name="gn{}{}_branch2b".format(stage_char, block_char))(y)
 
         y = keras.layers.Activation("relu", name="res{}{}_branch2b_relu".format(stage_char, block_char))(y)
@@ -72,7 +71,7 @@ def bottleneck_2d(
             y = keras.layers.BatchNormalization(axis=axis, epsilon=1e-5,
                                                 name="bn{}{}_branch2c".format(stage_char, block_char))(y)
         elif gn:
-            y = GroupNormalization(axis=axis, epsilon=1e-5, groups=groups,
+            y = GroupNormalization(epsilon=1e-5, groups=groups,
                                    name="gn{}{}_branch2c".format(stage_char, block_char))(y)
 
         if block == 0:
@@ -85,7 +84,7 @@ def bottleneck_2d(
                     shortcut)
 
             elif gn:
-                shortcut = GroupNormalization(axis=axis, epsilon=1e-5, groups=groups,
+                shortcut = GroupNormalization(epsilon=1e-5, groups=groups,
                                               name="gn{}{}_branch1".format(stage_char, block_char))(shortcut)
 
         else:
@@ -149,7 +148,7 @@ class ResNet2D(tensorflow.keras.Model):
         if bn:
             x = keras.layers.BatchNormalization(axis=axis, epsilon=1e-5, name="bn_conv1")(x)
         elif gn:
-            x = GroupNormalization(axis=axis, epsilon=1e-5, groups=groups, name="gn_conv1")(x)
+            x = GroupNormalization(epsilon=1e-5, groups=groups, name="gn_conv1")(x)
 
         x = keras.layers.Activation("relu", name="conv1_relu")(x)
         x = keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding="same", name="pool1")(x)

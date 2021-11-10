@@ -933,54 +933,12 @@ def _build_backbone(resnet=50, image_input=None, freeze_bn=False):
         if config.FREEZE_BACKBONE:
             backbone.trainable = False
 
-    # elif resnet == 503:
-    #     from classification_models.keras import Classifiers
-    #
-    #     seresnet50, _ = Classifiers.get('seresnet50')
-    #
-    #     m = seresnet50(input_tensor=image_input, weights='imagenet', include_top=False)
-    #
-    #     # C3, C4, C5
-    #     layer_names = ['activation_35', 'activation_65', 'activation_80']
-    #     backbone = [m.get_layer(layer_name).output for layer_name in layer_names]
-
     elif resnet == 101:
         backbone = keras_resnet.models.ResNet101(**setting)
         if config.FREEZE_HALF_BACKBONE:
             freeze_model_half(backbone)
         if config.FREEZE_BACKBONE:
             backbone.trainable = False
-
-    elif resnet == 14:
-        from tensorflow.keras.applications import EfficientNetB4
-        m = EfficientNetB4(
-            input_tensor=setting['inputs'],
-            include_top=setting['include_top'],
-            weights='imagenet' if config.PRETRAIN else None
-        )
-        if config.FREEZE_BN:
-            freeze_model_bn(m)
-
-        if config.FREEZE_BACKBONE:
-            m.trainable = False
-
-        layer_names = ['block4a_expand_activation', 'block6a_expand_activation', 'top_activation']
-        backbone = [m.get_layer(layer_name).output for layer_name in layer_names]
-
-    elif resnet == 12:
-        from tensorflow.keras.applications import EfficientNetB2
-        m = EfficientNetB2(
-            input_tensor=setting['inputs'],
-            include_top=setting['include_top'],
-            weights='imagenet' if config.PRETRAIN else None
-        )
-        if config.FREEZE_BN:
-            freeze_model_bn(m)
-
-        if config.FREEZE_BACKBONE:
-            m.trainable = False
-        layer_names = ['block4a_expand_activation', 'block6a_expand_activation', 'top_activation']
-        backbone = [m.get_layer(layer_name).output for layer_name in layer_names]
 
     elif resnet == 502:
         from tensorflow.keras.applications import ResNet50V2
@@ -1005,6 +963,13 @@ def _build_backbone(resnet=50, image_input=None, freeze_bn=False):
             freeze_model_bn(m)
         layer_names = ['conv3_block3_out', 'conv4_block5_out', 'conv5_block3_out']
         backbone = [m.get_layer(layer_name).output for layer_name in layer_names]
+
+    elif resnet == 503:
+        from models.backbone import ResNet50
+        backbone = ResNet50(inputs=image_input,
+                            include_top=False,
+                            gn=1
+                            )
 
     else:
         raise ValueError('Wrong Backbone Name !')

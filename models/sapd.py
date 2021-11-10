@@ -1020,7 +1020,6 @@ def SAPD(
         max_gt_boxes=100,
         width=256,
         depth=4,
-        score_th=0.01,
         resnet=50,
         freeze_bn=False
 ):
@@ -1126,7 +1125,7 @@ def SAPD(
             s_nms=1 if config.NMS == 2 else 0,
             nms_threshold=config.NMS_TH,
             name='filtered_detections',
-            score_threshold=score_th,
+            score_threshold=config.SCORE_TH,
             max_detections=config.DETECTIONS,
         )([boxes, model_pred[0]])
 

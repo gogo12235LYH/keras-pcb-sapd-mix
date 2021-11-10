@@ -6,30 +6,21 @@ import numpy as np
 import config
 
 
-def main():
-    common_args = {
-        'batch_size': 1,
-        'phi': 1,
-    }
-
-    model_weight_path = '20210921-DPCB100-HA116FV3-SGDW-E100BS8B1R50D4-soft.h5'
-
+def main(model_weight_path):
     generator = PascalVocGenerator(
         config.DATABASE_PATH,
         'test',
         skip_difficult=True,
         shuffle_groups=False,
-        **common_args
+        batch_size=1,
+        phi=config.PHI
     )
 
-    all_settings = {
-        'soft': True,
-        'num_cls': generator.num_classes(),
-        'resnet': config.BACKBONE,
-        'score_th': 0.01
-    }
-
-    test, pred_model = sapd.SAPD(**all_settings)
+    test, pred_model = sapd.SAPD(
+        soft=True,
+        num_cls=config.NUM_CLS,
+        resnet=config.BACKBONE,
+    )
     test.load_weights(model_weight_path, by_name=True, skip_mismatch=False)
 
     ap = evaluate2(generator, pred_model, score_threshold=0.01, max_detections=100)
@@ -69,4 +60,6 @@ def init_():
 
 if __name__ == '__main__':
     init_()
-    main()
+    main(
+        model_weight_path='20210921-DPCB100-HA116FV3-SGDW-E100BS8B1R50D4-soft.h5'
+    )

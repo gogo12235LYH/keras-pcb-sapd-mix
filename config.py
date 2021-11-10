@@ -117,4 +117,5 @@ NAME = DATE + D_NAME + H_NAME + O_NAME + T_NAME
 """ Model Detections: NMS, Proposal setting """
 NMS = 1                 # 1 for NMS, 2 for Soft-NMS
 NMS_TH = 0.5            # intersect of union threshold in same detections
+SCORE_TH = 0.01         # the threshold of object's confidence score
 DETECTIONS = 1000       # detecting proposals

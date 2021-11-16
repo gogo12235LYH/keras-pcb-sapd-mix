@@ -1,1 +1,1 @@
-from .sapd import SAPD
+from .sapd import SAPD, MODEL_CONFIG

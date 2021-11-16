@@ -10,7 +10,7 @@ def loss():
     return loss_
 
 
-def model_loss(cls='cls_loss', reg='reg_loss', fsn='feature_select_loss'):
+def model_loss(cls='cls_loss', reg='loc_loss', fsn='fsn_loss'):
     return {
         cls: loss(),
         reg: loss(),

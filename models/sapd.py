@@ -76,17 +76,12 @@ class FeatureSelectInput(keras.layers.Layer):
         rois = tf.concat(rois_from_feature_maps, axis=-1)
         return rois, gt_boxes_ids
 
-    def compute_output_shape(self, input_shape):
-        # shape = (total_true_Label_count, pool_size, pool_size, fpn_level * fpn_channel),
-        # shape = (total_true_Label_count, )
-        return [[None, self.pool_size, self.pool_size, None], [None, ]]
-
     def get_config(self):
         c = super(FeatureSelectInput, self).get_config()
-        c.update(
-            strides=self.strides,
-            pool_size=self.pool_size
-        )
+        c.update({
+            "strides": self.strides,
+            "pool_size": self.pool_size,
+        })
         return c
 
 
@@ -306,16 +301,12 @@ class FeatureSelectTarget(keras.layers.Layer):
         batch_boxes_level = tf.boolean_mask(batch_boxes_level, mask)
         return batch_boxes_level
 
-    def compute_output_shape(self, input_shape):
-        # (B * True_Label_count, )
-        return None,
-
     def get_config(self):
         c = super(FeatureSelectTarget, self).get_config()
-        c.update(
-            strides=self.strides,
-            shrink_ratio=self.shrink_ratio
-        )
+        c.update({
+            'strides': self.strides,
+            'shrink_ratio': self.shrink_ratio
+        })
         return c
 
 
@@ -413,16 +404,12 @@ class FeatureSelectWeight_V1(keras.layers.Layer):
         batch_select_weight = tf.stack(batch_select_weight, axis=0)
         return batch_select_weight
 
-    def compute_output_shape(self, input_shape):
-        # (Batch, Max_Bboxes_count, 5) = (1, 100, 5)
-        return input_shape[1][0], self.max_gt_boxes_count, 5
-
     def get_config(self):
         c = super(FeatureSelectWeight_V1, self).get_config()
-        c.update(
-            max_gt_boxes_count=self.max_gt_boxes_count,
-            soft=self.soft
-        )
+        c.update({
+            'max_gt_boxes_count': self.max_gt_boxes_count,
+            'soft': self.soft
+        })
         return c
 
 
@@ -475,16 +462,12 @@ class FeatureSelectWeight_V2(keras.layers.Layer):
 
         return batch_select_weight
 
-    def compute_output_shape(self, input_shape):
-        # (Batch, Max_Bboxes_count, 5) = (1, 100, 5)
-        return input_shape[1][0], self.max_gt_boxes_count, 5
-
     def get_config(self):
         c = super(FeatureSelectWeight_V2, self).get_config()
-        c.update(
-            max_gt_boxes_count=self.max_gt_boxes_count,
-            soft=self.soft
-        )
+        c.update({
+            'max_gt_boxes_count': self.max_gt_boxes_count,
+            'soft': self.soft
+        })
         return c
 
 
@@ -892,11 +875,11 @@ class Target(keras.layers.Layer):
 
     def get_config(self):
         c = super(Target, self).get_config()
-        c.update(
-            {
-                'num_cls': self.num_cls
-            }
-        )
+        c.update({
+            'num_cls': self.num_cls,
+            'strides': self.strides,
+            'shrink_ratio': self.shrink_ratio
+        })
         return c
 
 
@@ -1013,6 +996,21 @@ def _build_FSN(width):
         )
 
 
+MODEL_CONFIG = {
+    "FeatureSelectInput": FeatureSelectInput,
+    "FeatureSelectTarget": FeatureSelectTarget,
+    "FSNLoss": FSNLoss,
+    "FeatureSelectWeight_V2": FeatureSelectWeight_V2,
+    "FocalLoss": FocalLoss,
+    "IoULoss": IoULoss,
+    "Target": Target,
+    "_build_backbone": _build_backbone,
+    "create_pyramid_features_v2": create_pyramid_features_v2,
+    "_build_head_subnets": _build_head_subnets,
+    "_build_FSN": _build_FSN
+}
+
+
 # 2020-10-14, Feature Select Model.
 def SAPD(
         soft=False,
@@ -1068,14 +1066,9 @@ def SAPD(
 
     """ Loss for FSN """
     feature_select_loss = FSNLoss(
-        factor=config.FSN_FACTOR, name='feature_select_loss'
+        factor=config.FSN_FACTOR,
+        name='fsn_loss'
     )([feature_select_target, feature_select_pred])
-
-    # feature_select_loss = keras.layers.Lambda(
-    #     lambda x: 0.1 * keras.losses.sparse_categorical_crossentropy(x[0], x[1]),
-    #     output_shape=(1,),
-    #     name='feature_select_loss'
-    # )([feature_select_target, feature_select_pred])
 
     """ Soft Anchor-point weights """
     weight = FeatureSelectWeight_V2(max_gt_boxes_count=max_gt_boxes, soft=soft)([
@@ -1090,29 +1083,19 @@ def SAPD(
     )
 
     """ Loss for Subnetworks """
-    cls_loss = FocalLoss(name='cls_loss')([cls_target, model_pred[0]])
+    cls_loss = FocalLoss(
+        name='cls_loss'
+    )([cls_target, model_pred[0]])
     reg_loss = IoULoss(
         mode=config.IOU_LOSS,
         factor=config.IOU_FACTOR,
-        name='reg_loss'
+        name='loc_loss'
     )([reg_target, model_pred[-1]])
-
-    # focal_loss = q_focal_mask() if config.USING_QFL else focal_mask()
-    # iou_loss = iou_mask()
-    # cls_loss = keras.layers.Lambda(focal_loss, output_shape=(1,), name='cls_loss')([cls_target, model_pred[0]])
-    # aligns = ['Aligns']
-    # if config.HEAD in aligns:
-    #     reg_loss_A = keras.layers.Lambda(iou_loss, output_shape=(1,), name='reg_loss_A')([reg_target, model_pred[1]])
-    #     reg_loss_B = keras.layers.Lambda(iou_loss, output_shape=(1,), name='reg_loss_B')([reg_target, model_pred[2]])
-    #     reg_loss = keras.layers.Lambda(lambda x: x[0] + x[1], name='reg_loss')([reg_loss_A, reg_loss_B])
-    #
-    # else:
-    #     reg_loss = keras.layers.Lambda(iou_loss, output_shape=(1,), name='reg_loss')([reg_target, model_pred[-1]])
 
     training_model = keras.models.Model(
         inputs=[image_input, gt_boxes_input, true_label_gt_boxes_count_input, feature_maps_shape_input],
         outputs=[cls_loss, reg_loss, feature_select_loss],
-        name='feature_select_training_model'
+        name='training_model'
     )
 
     if config.EVALUATION:
@@ -1132,7 +1115,7 @@ def SAPD(
         prediction_model = keras.models.Model(
             inputs=[image_input],
             outputs=detections,
-            name='inference'
+            name='inference_model'
         )
         """ Training and Inference """
         return training_model, prediction_model

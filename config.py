@@ -17,6 +17,7 @@ DATABASE_PATH = _dataset_path[DATASET]
 
 """ Hyper-parameter setting """
 MODE = 1                # MODE = 1: Stage One; MODE = 2: Stage Two; MODE = 3: Top-1 Weight; MODE = 4: Top-5 Weight.
+DB_MODE = 'tf'          # 'tf' or 'keras', it means that using tf.data or keras.util.sequence.
 EPOCHs = 10
 STEPs_PER_EPOCH = 10  # steps in one epoch
 EPOCHs_STAGE_ONE = int(EPOCHs * 0.5)

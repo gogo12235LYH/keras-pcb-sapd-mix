@@ -329,13 +329,13 @@ def inputs_targets(image, bboxes, bboxes_count, fmaps_shape):
         "fmaps_shape": fmaps_shape,
     }
 
-    targets = [
-        tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
-        tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
-        tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
-    ]
+    # targets = [
+    #     tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
+    #     tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
+    #     tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
+    # ]
 
-    return inputs, targets
+    return inputs
 
 
 def create_pipeline(phi=0, mode="ResNetV1", db="DPCB", batch_size=1):

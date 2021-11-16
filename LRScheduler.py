@@ -1,5 +1,5 @@
 from tensorflow.keras.callbacks import Callback
-import tensorflow.keras.backend as K
+import tensorflow.keras.backend as k
 import numpy as np
 
 
@@ -49,7 +49,7 @@ class CDScheduler(Callback):
             warm_up_epochs=self.warm_up_iterations,
             alpha=self.alpha
         )
-        K.set_value(self.model.optimizer.lr, self.lr)
+        k.set_value(self.model.optimizer.lr, self.lr)
 
     def on_epoch_begin(self, epoch, logs=None):
         print(f"[INFO] Current Iteration : {self.iteration + 1}")
@@ -71,7 +71,7 @@ class CDScheduler(Callback):
             warm_up_epochs=self.warm_up_iterations,
             alpha=self.alpha
         )
-        K.set_value(self.model.optimizer.lr, self.lr)
+        k.set_value(self.model.optimizer.lr, self.lr)
 
     def on_train_end(self, logs=None):
         if self.save_txt:
@@ -163,11 +163,11 @@ class CDCLRScheduler(Callback):
                     self.next_restart += self.cycle_length
 
         print(f"[INFO] Current Iteration : {self.iteration + 1}")
-        K.set_value(self.model.optimizer.lr, self.clr())
+        k.set_value(self.model.optimizer.lr, self.clr())
 
     def on_batch_end(self, batch, logs=None):
         self.batch_since_restart += 1
-        K.set_value(self.model.optimizer.lr, self.clr())
+        k.set_value(self.model.optimizer.lr, self.clr())
 
     def on_epoch_begin(self, epoch, logs=None):
         print(f"[INFO] Learning Rate : {self.clr()}")
@@ -278,10 +278,10 @@ class CDCLRScheduler2(Callback):
 
         # if warm up is used, and initial epoch must be 0.
         if self.warm_up and self.initial_epoch == 0:
-            K.set_value(self.model.optimizer.lr, self.wlr())
+            k.set_value(self.model.optimizer.lr, self.wlr())
 
         else:
-            K.set_value(self.model.optimizer.lr, self.clr())
+            k.set_value(self.model.optimizer.lr, self.clr())
 
         if self.save_txt and self.file_name is not None:
             self.file_name = 'CDCLRScheduler'
@@ -302,10 +302,10 @@ class CDCLRScheduler2(Callback):
         self.batch_count(num_steps=1)
 
         if self.warm_up and self.step < self.steps_per_epoch * self.warm_up_epochs:
-            K.set_value(self.model.optimizer.lr, self.wlr())
+            k.set_value(self.model.optimizer.lr, self.wlr())
 
         else:
-            K.set_value(self.model.optimizer.lr, self.clr())
+            k.set_value(self.model.optimizer.lr, self.clr())
 
     def on_epoch_begin(self, epoch, logs=None):
         if self.warm_up and self.step < self.steps_per_epoch * self.warm_up_epochs:

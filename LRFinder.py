@@ -1,5 +1,5 @@
 from tensorflow.keras.callbacks import Callback
-import tensorflow.keras.backend as K
+import tensorflow.keras.backend as k
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -73,7 +73,7 @@ class LRFinder(Callback):
                 self.model.load_weights('tmp.hdf5')
 
             lr = self.learning_rates[self.iteration // self.batches_lr_update]
-            K.set_value(self.model.optimizer.lr, lr)
+            k.set_value(self.model.optimizer.lr, lr)
 
             self.losses.append(loss)
 

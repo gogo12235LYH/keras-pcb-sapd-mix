@@ -17,6 +17,14 @@ Soft-Anchor Point Detector (SAPD), Printed Circuit Board (PCB), Defect Detection
 3. ~~透過 tf.data 取代 keras.Sequence 來增加 GPU使用率 (目前測試多卡訓練，在linux可使用keras sequence
 則windows 就必須使用 tf.data才能夠穩定使用多卡訓練)~~ < tf.data，建議依據自己的環境來優化
 
+---
+
+## Updates
+
+* 2021.11.16 - 修正 keras 訓練時需要虛設損失函數目標，透過 add_loss 及 add_metric 解決。
+
+---
+
 ## 目錄
 
 1. [安裝-Installation](#1-安裝-Installation)

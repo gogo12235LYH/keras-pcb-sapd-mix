@@ -67,6 +67,9 @@ def load_weights(input_model, model_name):
             input_model.load_weights(config.PRETRAIN_WEIGHT, by_name=True)
             print("OK.")
 
+        else:
+            print(" From scratch ... ")
+
     elif config.MODE == 2:
 
         # Stage 2
@@ -108,21 +111,23 @@ def create_generators(
     misc_effect = MiscEffect() if misc_aug else None
     visual_effect = VisualEffect() if visual_aug else None
 
-    train_generator_, _ = create_pipeline(
-        phi=phi,
-        mode=config.BACKBONE_TYPE,
-        db=config.DATASET,
-        batch_size=batch_size
-    )
+    if config.DB_MODE == 'tf':
+        train_generator_, _ = create_pipeline(
+            phi=phi,
+            mode=config.BACKBONE_TYPE,
+            db=config.DATASET,
+            batch_size=batch_size
+        )
 
-    # train_generator_ = PascalVocGenerator(
-    #     path,
-    #     'trainval' if config.MixUp_AUG == 0 else 'trainval_mixup',
-    #     skip_difficult=True,
-    #     misc_effect=misc_effect,
-    #     visual_effect=visual_effect,
-    #     **common_args
-    # )
+    else:
+        train_generator_ = PascalVocGenerator(
+            path,
+            'trainval' if config.MixUp_AUG == 0 else 'trainval_mixup',
+            skip_difficult=True,
+            misc_effect=misc_effect,
+            visual_effect=visual_effect,
+            **common_args
+        )
 
     test_generator_ = PascalVocGenerator(
         path,
@@ -183,11 +188,11 @@ def model_compile(info, model_name, optimizer):
     print(f"{info} Model Compiling... ")
     model_.compile(
         optimizer=optimizer,
-        loss=model_loss(
-            cls='cls_loss',
-            reg='reg_loss',
-            fsn='feature_select_loss'
-        )
+        # loss=model_loss(
+        #     cls='cls_loss',
+        #     reg='reg_loss',
+        #     fsn='feature_select_loss'
+        # )
     )
     return model_, pred_model_
 

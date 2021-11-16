@@ -1,6 +1,5 @@
 import config
 import tensorflow as tf
-import tensorflow_datasets as tfds
 import tensorflow.keras as keras
 from tensorflow.python.keras.utils.data_utils import get_file
 from generators.voc import PascalVocGenerator
@@ -8,7 +7,6 @@ from preprocess.color_aug import VisualEffect
 from preprocess.misc_aug import MiscEffect
 from models import SAPD
 from tensorflow_addons.optimizers import SGDW, AdamW
-from models.losses import model_loss
 from generators.pipeline import create_pipeline
 from callbacks import create_callbacks
 

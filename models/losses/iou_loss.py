@@ -283,10 +283,10 @@ class IoULoss(keras.layers.Layer):
         self.fnc = iou_mask_v2(mode, factor)
 
     def call(self, inputs, **kwargs):
-        return self.fnc(inputs)
-
-    def compute_output_shape(self, input_shape):
-        return [1, ]
+        loss = self.fnc(inputs)
+        self.add_loss(loss)
+        self.add_metric(loss, name=self.name)
+        return loss
 
 
 if __name__ == '__main__':

@@ -67,7 +67,7 @@ class FocalLoss(keras.layers.Layer):
         self.fnc = focal_mask(alpha=alpha, gamma=gamma)
 
     def call(self, inputs, **kwargs):
-        return self.fnc(inputs)
-
-    def compute_output_shape(self, input_shape):
-        return [1, ]
+        loss = self.fnc(inputs)
+        self.add_loss(loss)
+        self.add_metric(loss, name=self.name)
+        return loss

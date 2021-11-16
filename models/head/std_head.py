@@ -5,10 +5,13 @@ import tensorflow.keras as keras
 
 class StdHead(keras.Model):
     def __init__(self, width, depth, num_cls):
+        self.width = width
+        self.depth = depth
+        self.num_cls = num_cls
         super(StdHead, self).__init__()
 
         _conv2d_setting = {
-            'filters': width,
+            'filters': self.width,
             'kernel_size': 3,
             'strides': 1,
             'padding': 'same',
@@ -16,12 +19,12 @@ class StdHead(keras.Model):
         }
 
         self.cls_blocks = keras.Sequential()
-        for _ in range(depth):
+        for _ in range(self.depth):
             self.cls_blocks.add(keras.layers.Conv2D(**_conv2d_setting))
             self.cls_blocks.add(keras.layers.Activation(tf.nn.relu))
 
         self.reg_blocks = keras.Sequential()
-        for _ in range(depth):
+        for _ in range(self.depth):
             self.reg_blocks.add(keras.layers.Conv2D(**_conv2d_setting))
             self.reg_blocks.add(keras.layers.Activation(tf.nn.relu))
 
@@ -38,7 +41,7 @@ class StdHead(keras.Model):
             activation='relu'
         )
 
-        self.cls_reshape = keras.layers.Reshape((-1, num_cls))
+        self.cls_reshape = keras.layers.Reshape((-1, self.num_cls))
         self.reg_reshape = keras.layers.Reshape((-1, 4))
 
     def call(self, inputs, training=None, mask=None):
@@ -53,7 +56,13 @@ class StdHead(keras.Model):
         return cls, reg
 
     def get_config(self):
-        return super(StdHead, self).get_config()
+        c_fig = super(StdHead, self).get_config()
+        c_fig.update({
+            "width": self.width,
+            "depth": self.depth,
+            "num_cls": self.num_cls
+        })
+        return c_fig
 
 
 def StdSubnetworks(input_features, width=256, depth=4, num_cls=20):

@@ -193,6 +193,19 @@ def random_image_saturation(image, prob=.5):
     return image
 
 
+def bboxes_clip(bboxes, image_shape):
+    bboxes = tf.stack(
+        [
+            tf.clip_by_value(bboxes[:, 0], 0., image_shape[1] - 2),  # x1
+            tf.clip_by_value(bboxes[:, 1], 0., image_shape[0] - 2),  # y1
+            tf.clip_by_value(bboxes[:, 2], 1., image_shape[1] - 1),  # x2
+            tf.clip_by_value(bboxes[:, 3], 1., image_shape[0] - 1),  # y2
+        ],
+        axis=-1
+    )
+    return bboxes
+
+
 def preprocess_data(
         phi: int = 0,
         mode: str = "ResNetV1",
@@ -282,11 +295,14 @@ def preprocess_data(
         #
         image, image_shape, bboxes, classes = compute_inputs(sample)
 
-        # TODO: data augmentation
+        # Data augmentation
         image, image_shape, bboxes = multi_scale(image, image_shape, bboxes, prob=0.5)
         image, bboxes = tf_rotate(image, image_shape, bboxes, prob=0.5)
         image, bboxes = random_flip_horizontal(image, image_shape, bboxes, prob=0.5)
         image, bboxes = random_crop(image, image_shape, bboxes, prob=0.5)
+
+        # Clip Bboxes
+        bboxes = bboxes_clip(bboxes, image_shape)
 
         #
         image, scale, offset_h, offset_w = _resize_image(image=image, target_size=_image_size[phi])
@@ -328,13 +344,6 @@ def inputs_targets(image, bboxes, bboxes_count, fmaps_shape):
         "bboxes_count": bboxes_count,
         "fmaps_shape": fmaps_shape,
     }
-
-    # targets = [
-    #     tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
-    #     tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
-    #     tf.zeros([tf.shape(image)[0], ], dtype=tf.float32),
-    # ]
-
     return inputs
 
 
@@ -357,11 +366,8 @@ def create_pipeline(phi=0, mode="ResNetV1", db="DPCB", batch_size=1):
 
     train = train.shuffle(8 * batch_size)
     train = train.padded_batch(batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True)
-
     train = train.map(inputs_targets, num_parallel_calls=autotune)
-
     train = train.prefetch(autotune).repeat()
-
     return train, test
 
 
@@ -557,7 +563,6 @@ class PipeLine:
 
 
 if __name__ == '__main__':
-    import matplotlib.pyplot as plt
 
     bs = 4
 

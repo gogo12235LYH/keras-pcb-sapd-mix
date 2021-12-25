@@ -364,7 +364,7 @@ def create_pipeline(phi=0, mode="ResNetV1", db="DPCB", batch_size=1):
         fmap_shapes=feature_maps_shapes
     ), num_parallel_calls=autotune)
 
-    train = train.shuffle(8 * batch_size)
+    train = train.shuffle(train.__len__())
     train = train.padded_batch(batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True)
     train = train.map(inputs_targets, num_parallel_calls=autotune)
     train = train.prefetch(autotune).repeat()
@@ -390,7 +390,7 @@ def create_pipeline_test(phi=0, mode="ResNetV1", db="DPCB", batch_size=1):
         debug=True
     ), num_parallel_calls=autotune)
 
-    train = train.shuffle(8 * batch_size)
+    train = train.shuffle(train.__len__())
     train = train.padded_batch(batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True)
     train = train.map(inputs_targets, num_parallel_calls=autotune)
     train = train.prefetch(autotune)

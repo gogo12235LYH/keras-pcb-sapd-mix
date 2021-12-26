@@ -20,7 +20,7 @@ Soft-Anchor Point Detector (SAPD), Printed Circuit Board (PCB), Defect Detection
 ---
 
 ## Updates
-
+* 2021.12.26 - 更新 generator.pipeline 中 shuffle 參數 (buffer size)，更改為訓練集數量大小。:point_right: [Why ?](https://stackoverflow.com/a/48096625/17764502)
 * 2021.11.16 - 修正 keras 訓練時需要虛設損失函數目標，透過 add_loss 及 add_metric 解決。
 
 ---

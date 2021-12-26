@@ -14,7 +14,3 @@ script:
     - python setup.py check -m -s
     - python setup.py build_ext --inplace
     - python test.py
-
-after_success:
-    - coverage xml
-    - coverage report

@@ -1,5 +1,4 @@
-# PCB Defect Detection Based on SAPD with Mix Subnetwork
-
+# PCB Defect Detection Based on SAPD with Mix Subnetwork [![Build Status](https://app.travis-ci.com/gogo12235LYH/keras-pcb-sapd-mix.svg?branch=master)](https://app.travis-ci.com/github/gogo12235LYH/keras-pcb-sapd-mix)
 ---
 
 _此貢獻為記錄原始研究程式碼及數據成果，初始環境為 Ubuntu 18.04, Tensorflow 2.3.0_ :moon: [LINK](http://etheses.lib.ntust.edu.tw/cgi-bin/gs32/gsweb.cgi?o=dstdcdr&s=id=%22G0M10812020%22.&searchmode=basic)

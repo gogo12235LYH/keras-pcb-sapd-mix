@@ -84,54 +84,6 @@ def load_weights(input_model, model_name):
                 print(f" Imagenet ... OK.")
 
 
-def create_generators(batch_size=2,
-                      phi=0,
-                      path=r'../VOCdevkit/VOC2012+2007',
-                      misc_aug=True,
-                      visual_aug=True
-                      ):
-    """
-    Create generators for training and validation.
-    Args
-        args: parseargs object containing configuration for generators.
-        preprocess_image: Function that preprocesses an image for the network.
-    """
-    common_args = {
-        'batch_size': batch_size,
-        'phi': phi,
-    }
-
-    misc_effect = MiscEffect() if misc_aug else None
-    visual_effect = VisualEffect() if visual_aug else None
-
-    train_generator_ = PascalVocGenerator(
-        path,
-        'trainval' if config.MixUp_AUG == 0 else 'trainval_mixup',
-        skip_difficult=True,
-        misc_effect=misc_effect,
-        visual_effect=visual_effect,
-        **common_args
-    )
-
-    validation_generator_ = PascalVocGenerator(
-        path,
-        'val',
-        skip_difficult=True,
-        shuffle_groups=False,
-        **common_args
-    )
-
-    test_generator_ = PascalVocGenerator(
-        path,
-        'test',
-        skip_difficult=True,
-        shuffle_groups=False,
-        **common_args
-    )
-
-    return train_generator_, validation_generator_, test_generator_
-
-
 def create_optimizer(opt_name, base_lr, m, decay):
     if opt_name == 'SGD':
         return keras.optimizers.SGD(

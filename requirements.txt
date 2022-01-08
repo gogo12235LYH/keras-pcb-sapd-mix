@@ -1,7 +1,8 @@
 Cython
-keras
+keras==2.6.0
+keras_resnet
 opencv-contrib-python
 Pillow
 progressbar2
 tensorflow==2.6.0
-tensorflow-addons
+tensorflow-addons==0.14.0

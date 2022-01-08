@@ -1,8 +1,5 @@
 import tensorflow as tf
 from tensorflow.python.keras.utils.data_utils import get_file
-from generators.voc import PascalVocGenerator
-from preprocess.color_aug import VisualEffect
-from preprocess.misc_aug import MiscEffect
 import tensorflow.keras as keras
 from models.sapd import SAPD
 from tensorflow_addons.optimizers import SGDW, AdamW

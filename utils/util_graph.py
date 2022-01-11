@@ -48,7 +48,7 @@ def normalize_boxes(boxes, width, height, stride):
     return tf.concat([x1, y1, x2, y2], axis=-1)
 
 
-@tf.function(jit_compile=True)
+@tf.function(jit_compile=True, experimental_relax_shapes=True)
 def shrink_and_normalize_boxes(boxes, width, height, stride, shrink_ratio=0.2, kd=False):
     boxes = xyxy2cxcywh(boxes)
     boxes = tf.concat((boxes[:, :2], boxes[:, 2:4] * shrink_ratio), axis=-1)

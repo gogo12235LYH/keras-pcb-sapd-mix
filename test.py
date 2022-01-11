@@ -126,14 +126,7 @@ def model_compile(info, model_name, optimizer):
     load_weights(input_model=model_, model_name=model_name)
 
     print(f"{info} Model Compiling... ")
-    model_.compile(
-        optimizer=optimizer,
-        loss=model_loss(
-            cls='cls_loss',
-            reg='reg_loss',
-            fsn='feature_select_loss'
-        )
-    )
+    model_.compile(optimizer=optimizer)
     return model_, pred_model_
 
 

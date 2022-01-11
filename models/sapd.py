@@ -335,7 +335,7 @@ def _build_map_function_top_soft_weight(soft_weight, top_k=3):
 
 
 # refactor - 20211105
-# @tf.function(jit_compile=True)
+@tf.function(jit_compile=True)
 def _build_map_function_top_soft_weight_test(soft_weight, top_k=3):
     # soft_weight: (None, 5)
     # topk_value: (None, top_k)
@@ -597,6 +597,7 @@ def _build_map_function_module_target(
                 level_box_pos_area = (dl + dr) * (dt + db)
                 # (fh, fw)
                 level_box_area = tf.pad(level_box_pos_area, neg_pad, constant_values=1e7)
+                # level_box_area = tf.pad(level_pos_box_ap_weight ** 0.5, neg_pad, constant_values=0.)
                 return level_box_cls_target, level_box_regr_target, level_box_area
 
             # cls_target : shape = (True_Label_count, fh, fw, cls_num + 2)

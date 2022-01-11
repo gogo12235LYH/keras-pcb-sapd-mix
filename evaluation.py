@@ -60,6 +60,7 @@ def init_():
 
 if __name__ == '__main__':
     init_()
+    config.EVALUATION = 1
     main(
         model_weight_path='20210921-DPCB100-HA116FV3-SGDW-E100BS8B1R50D4-soft.h5'
     )

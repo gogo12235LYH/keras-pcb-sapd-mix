@@ -6,32 +6,37 @@ from models.layers import WSConv2D
 k_init = tf.initializers.RandomNormal(0.0, 0.01)
 
 
-class FSN(keras.Model):
+class FSN(keras.layers.Layer):
     """ Feature Selection Network V3 """
 
     def __init__(self, width=256, depth=3, fpn_level=5, ws=0, *args, **kwargs):
         super(FSN, self).__init__(*args, **kwargs)
 
+        self.width = width
+        self.depth = depth
+        self.fpn_level = fpn_level
+        self.ws = ws
+
         # Network
-        self.fsn_blocks = keras.Sequential()
+        self.fsn_blocks = []
         for _ in range(depth):
             if ws:
-                self.fsn_blocks.add(
+                self.fsn_blocks.append(
                     WSConv2D(
                         filters=width, kernel_size=3, strides=1, padding='same',
                         kernel_initializer=k_init
                     )
                 )
             else:
-                self.fsn_blocks.add(
+                self.fsn_blocks.append(
                     keras.layers.Conv2D(
                         filters=width, kernel_size=3, strides=1, padding='same',
                         kernel_initializer=k_init
                     )
                 )
 
-            self.fsn_blocks.add(GroupNormalization(groups=16, epsilon=1e-5))
-            self.fsn_blocks.add(keras.layers.Activation(tf.nn.relu))
+            self.fsn_blocks.append(GroupNormalization(groups=16, epsilon=1e-5))
+            self.fsn_blocks.append(keras.layers.Activation(tf.nn.relu))
 
         # Replace Flatten
         self.global_avg = keras.layers.GlobalAvgPool2D()
@@ -48,7 +53,8 @@ class FSN(keras.Model):
         x = inputs
 
         # (None, None, None, width)
-        x = self.fsn_blocks(x)
+        for fsn_layer in self.fsn_blocks:
+            x = fsn_layer(x)
 
         # (None, 1, 1, width)
         x = self.global_avg(x)
@@ -58,5 +64,8 @@ class FSN(keras.Model):
         return x
 
     def get_config(self):
-        # TODO: Implement?
-        pass
+        cfg = super(FSN, self).get_config()
+        cfg.update(
+            {'width': self.width, 'depth': self.depth, 'fpn_level': self.fpn_level, 'ws': self.ws}
+        )
+        return cfg

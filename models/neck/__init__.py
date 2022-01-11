@@ -1,3 +1,3 @@
 from .fsn import FSN
-from .fpn import FPN
+from .fpn import FeaturePyramidNetwork
 

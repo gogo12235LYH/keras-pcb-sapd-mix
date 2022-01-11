@@ -31,8 +31,6 @@ def create_callbacks(
         config,
         pred_mod,
         test_gen,
-        tensorboard=0,
-        tensorboard_path=None,
 ):
     cbs = []
     info_ = ''
@@ -43,18 +41,12 @@ def create_callbacks(
             Evaluate(test_gen, pred_mod)
         )
 
-    if tensorboard:
+    if config.TENSORBOARD:
         info_ = info_ + "Tensorboard, "
 
         cbs.append(
             keras.callbacks.TensorBoard(
-                log_dir='{file_path}/logs'.format(file_path=tensorboard_path),
-                histogram_freq=0,
-                write_graph=True,
-                write_images=False,
-                profile_batch=config.BATCH_SIZE,
-                embeddings_freq=0,
-                embeddings_metadata=None
+                log_dir='./logs',
             )
         )
 

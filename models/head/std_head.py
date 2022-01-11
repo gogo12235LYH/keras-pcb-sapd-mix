@@ -1,13 +1,15 @@
 import tensorflow as tf
 import numpy as np
 import tensorflow.keras as keras
+from tensorflow_addons.layers import GroupNormalization
 
 
-class StdHead(keras.Model):
-    def __init__(self, width, depth, num_cls):
+class StdHead(keras.layers.Layer):
+    def __init__(self, width, depth, num_cls, gn=1):
         self.width = width
         self.depth = depth
         self.num_cls = num_cls
+        self.gn = gn
         super(StdHead, self).__init__()
 
         _conv2d_setting = {
@@ -18,15 +20,19 @@ class StdHead(keras.Model):
             'kernel_initializer': tf.initializers.RandomNormal(0.0, 0.01),
         }
 
-        self.cls_blocks = keras.Sequential()
+        self.cls_blocks = []
         for _ in range(self.depth):
-            self.cls_blocks.add(keras.layers.Conv2D(**_conv2d_setting))
-            self.cls_blocks.add(keras.layers.Activation(tf.nn.relu))
+            self.cls_blocks.append(keras.layers.Conv2D(**_conv2d_setting, groups=16))
 
-        self.reg_blocks = keras.Sequential()
+            if gn:
+                self.cls_blocks.append(GroupNormalization(groups=16))
+
+            self.cls_blocks.append(keras.layers.Activation(tf.nn.relu))
+
+        self.reg_blocks = []
         for _ in range(self.depth):
-            self.reg_blocks.add(keras.layers.Conv2D(**_conv2d_setting))
-            self.reg_blocks.add(keras.layers.Activation(tf.nn.relu))
+            self.reg_blocks.append(keras.layers.Conv2D(**_conv2d_setting))
+            self.reg_blocks.append(keras.layers.Activation(tf.nn.relu))
 
         self.cls_conv2d = keras.layers.Conv2D(
             filters=num_cls, kernel_size=3, strides=1, padding='same',
@@ -45,8 +51,13 @@ class StdHead(keras.Model):
         self.reg_reshape = keras.layers.Reshape((-1, 4))
 
     def call(self, inputs, training=None, mask=None):
-        cls = self.cls_blocks(inputs)
-        reg = self.reg_blocks(inputs)
+        cls = inputs
+        reg = inputs
+
+        for cls_layer in self.cls_blocks:
+            cls = cls_layer(cls)
+        for reg_layer in self.reg_blocks:
+            reg = reg_layer(reg)
 
         cls = self.cls_conv2d(cls)
         reg = self.reg_conv2d(reg)
@@ -60,7 +71,8 @@ class StdHead(keras.Model):
         c_fig.update({
             "width": self.width,
             "depth": self.depth,
-            "num_cls": self.num_cls
+            "num_cls": self.num_cls,
+            "gn": self.gn
         })
         return c_fig
 

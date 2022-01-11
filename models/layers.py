@@ -5,17 +5,6 @@ from tensorflow import keras
 from utils import util_graph
 
 
-# 2020-10-25, Weight Standardization
-def ws_reg(kernel):
-    # (B, fw, fh, fc)
-    # (0, 1, 2, 3)
-    kernel_mean = tf.math.reduce_mean(kernel, axis=[0, 1, 2], keepdims=True)
-    kernel = kernel - kernel_mean
-    kernel_std = keras.backend.std(kernel, axis=[0, 1, 2], keepdims=True)
-    kernel = kernel / (kernel_std + 1e-5)
-    # return kernel
-
-
 @tf.function(jit_compile=True)
 def standardize_weight(kernel, eps):
     mean = tf.math.reduce_mean(kernel, axis=(0, 1, 2), keepdims=True)

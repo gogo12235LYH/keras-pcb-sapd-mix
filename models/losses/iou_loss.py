@@ -279,7 +279,8 @@ def iou_mask_v2(mode='fciou', factor=1.0):
 class IoULoss(keras.layers.Layer):
     def __init__(self, mode='fciou', factor=1.0, *args, **kwargs):
         super(IoULoss, self).__init__(*args, **kwargs)
-
+        self.mode = mode
+        self.factor = factor
         self.fnc = iou_mask_v2(mode, factor)
 
     def call(self, inputs, **kwargs):
@@ -287,6 +288,13 @@ class IoULoss(keras.layers.Layer):
         self.add_loss(loss)
         self.add_metric(loss, name=self.name)
         return loss
+
+    def get_config(self):
+        cfg = super(IoULoss, self).get_config()
+        cfg.update(
+            {'mode': self.mode, 'factor': self.factor}
+        )
+        return cfg
 
 
 if __name__ == '__main__':

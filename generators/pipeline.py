@@ -74,7 +74,7 @@ def tf_rotate(
         image, image_shape, bboxes, prob=0.5
 ):
     offset = image_shape / 2.
-    rotate_k = np.random.choice([1, 2, 3])
+    rotate_k = tf.random.uniform((), minval=1, maxval=4, dtype=tf.int32)
 
     def _r_method(x, y, angle):
         tf_cos = tf.math.cos(angle)
@@ -124,8 +124,9 @@ def multi_scale(
         image, image_shape, bboxes, prob=0.5
 ):
     if tf.random.uniform(()) > prob:
-        start, end, step = 0.8, 1.3, 0.05
-        scale = np.random.choice(np.arange(start, end, step))
+        # start, end, step = 0.25, 1.3, 0.05
+        # scale = np.random.choice(np.arange(start, end, step))
+        scale = tf.random.uniform((), minval=0.6, maxval=2.0)
 
         new_image_shape = tf.cast(image_shape * scale, dtype=tf.int32)
         image = tf.image.resize(image, new_image_shape, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
@@ -211,7 +212,7 @@ def preprocess_data(
         mode: str = "ResNetV1",
         fmap_shapes: any = None,
         max_bboxes: int = 100,
-        padding_value: float = 0.,
+        padding_value: float = 128.,
         debug: bool = False,
 ):
     """Applies preprocessing step to a single sample
@@ -223,16 +224,35 @@ def preprocess_data(
     def _resize_image(image, target_size=512):
         image_height, image_width = tf.shape(image)[0], tf.shape(image)[1]
 
-        if image_height > image_width:
-            scale = tf.cast((target_size / image_height), dtype=tf.float32)
-            resized_height = target_size
-            resized_width = tf.cast((tf.cast(image_width, dtype=tf.float32) * scale), dtype=tf.int32)
-        else:
-            scale = tf.cast((target_size / image_width), dtype=tf.float32)
-            resized_height = tf.cast((tf.cast(image_height, dtype=tf.float32) * scale), dtype=tf.int32)
-            resized_width = target_size
+        # if image_height > image_width:
+        #     scale = tf.cast((target_size / image_height), dtype=tf.float32)
+        #     resized_height = target_size
+        #     resized_width = tf.cast((tf.cast(image_width, dtype=tf.float32) * scale), dtype=tf.int32)
+        # else:
+        #     scale = tf.cast((target_size / image_width), dtype=tf.float32)
+        #     resized_height = tf.cast((tf.cast(image_height, dtype=tf.float32) * scale), dtype=tf.int32)
+        #     resized_width = target_size
 
-        image = tf.image.resize(image, (resized_height, resized_width), method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+        if image_height > target_size or image_width > target_size:
+            if image_height > image_width:
+                scale = tf.cast((target_size / image_height), dtype=tf.float32)
+                resized_height = target_size
+                resized_width = tf.cast((tf.cast(image_width, dtype=tf.float32) * scale), dtype=tf.int32)
+            else:
+                scale = tf.cast((target_size / image_width), dtype=tf.float32)
+                resized_height = tf.cast((tf.cast(image_height, dtype=tf.float32) * scale), dtype=tf.int32)
+                resized_width = target_size
+
+            image = tf.image.resize(
+                image,
+                (resized_height, resized_width),
+                method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+
+        else:
+            resized_height = image_height
+            resized_width = image_width
+            scale = 1.0
+
         offset_h = (target_size - resized_height) // 2
         offset_w = (target_size - resized_width) // 2
 
@@ -367,7 +387,7 @@ def create_pipeline(phi=0, mode="ResNetV1", db="DPCB", batch_size=1):
     train = train.shuffle(train.__len__())
     train = train.padded_batch(batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True)
     train = train.map(inputs_targets, num_parallel_calls=autotune)
-    train = train.prefetch(autotune).repeat()
+    train = train.repeat().prefetch(autotune)
     return train, test
 
 
@@ -563,7 +583,6 @@ class PipeLine:
 
 
 if __name__ == '__main__':
-
     bs = 4
 
     train_t, test_t = create_pipeline_test(
@@ -593,41 +612,46 @@ if __name__ == '__main__':
     # Examples/sec (First only) 6.22 ex/sec (total: 4 ex, 0.64 sec)
     # Examples/sec (First excluded) 90.03 ex/sec (total: 996 ex, 11.06 sec)
 
-    # cnt = 0
-    # while cnt < 5:
-    #     inputs_batch, targets_batch = next(iter(train_t))
-    #
-    #     images = inputs_batch['image']
-    #     bboxes = inputs_batch['bboxes']
-    #
-    #     bboxes = tf.stack(
-    #         [
-    #             bboxes[..., 1],
-    #             bboxes[..., 0],
-    #             bboxes[..., 3],
-    #             bboxes[..., 2],
-    #         ],
-    #         axis=-1
-    #     )
-    #
-    #     colors = np.array([[255.0, 0.0, 0.0]])
-    #     images = tf.image.draw_bounding_boxes(
-    #         images,
-    #         bboxes,
-    #         colors=colors
-    #     )
-    #
-    #     plt.figure(figsize=(10, 8))
-    #     for i in range(bs):
-    #         plt.subplot(2, 2, i + 1)
-    #         plt.imshow(images[i].numpy().astype("uint8"))
-    #         print(bboxes[i])
-    #
-    #     # plt.pause(0)
-    #     cnt += 1
+    import matplotlib.pyplot as plt
 
-    tfds.benchmark(train_t, batch_size=bs)
-    tfds.benchmark(train_t, batch_size=bs)
+    iterations = 10
+    plt.figure(figsize=(10, 8))
+
+    for step, inputs_batch in enumerate(train_t):
+        if (step + 1) > iterations:
+            break
+
+        print(f"[INFO] {step + 1} / {iterations}")
+
+        images = inputs_batch['image']
+        bboxes = inputs_batch['bboxes']
+
+        bboxes = tf.stack(
+            [
+                bboxes[..., 1],
+                bboxes[..., 0],
+                bboxes[..., 3],
+                bboxes[..., 2],
+            ],
+            axis=-1
+        )
+
+        colors = np.array([[255.0, 0.0, 0.0]])
+        images = tf.image.draw_bounding_boxes(
+            images,
+            bboxes,
+            colors=colors
+        )
+
+        for i in range(bs):
+            plt.subplot(2, 2, i + 1)
+            plt.imshow(images[i].numpy().astype("uint8"))
+            # print(bboxes[i])
+
+        plt.pause(0.001)
+
+    # tfds.benchmark(train_t, batch_size=bs)
+    # tfds.benchmark(train_t, batch_size=bs)
 
     # image : (Batch, None, None, 3)
     # bboxes : (Batch, None, 5)

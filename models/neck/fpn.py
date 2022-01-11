@@ -27,13 +27,13 @@ _down_dict = {
 }
 
 
-class FPN(keras.Model):
+class FeaturePyramidNetwork(keras.layers.Layer):
     """
         From : https://keras.io/examples/vision/retinanet/
     """
 
     def __init__(self, interpolation='nearest', **kwargs):
-        super(FPN, self).__init__(name='FPN', **kwargs)
+        super(FeaturePyramidNetwork, self).__init__(name='FPN', **kwargs)
 
         self.interpolation = interpolation
 
@@ -82,7 +82,7 @@ class FPN(keras.Model):
         return p3, p4, p5, p6, p7
 
     def get_config(self):
-        c = super(FPN, self).get_config()
+        c = super(FeaturePyramidNetwork, self).get_config()
         c.update(
             {
                 'interpolation': self.interpolation

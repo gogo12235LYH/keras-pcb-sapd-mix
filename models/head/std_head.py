@@ -4,13 +4,14 @@ import tensorflow.keras as keras
 from tensorflow_addons.layers import GroupNormalization
 
 
-class StdHead(keras.layers.Layer):
+class StdHead(keras.Model):
     def __init__(self, width, depth, num_cls, gn=1):
+        super(StdHead, self).__init__()
+
         self.width = width
         self.depth = depth
         self.num_cls = num_cls
         self.gn = gn
-        super(StdHead, self).__init__()
 
         _conv2d_setting = {
             'filters': self.width,

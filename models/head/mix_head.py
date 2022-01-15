@@ -82,6 +82,11 @@ class MixHead(keras.Model):
     def __init__(self, width, depth, num_cls, ws=0, *args, **kwargs):
         super(MixHead, self).__init__(*args, **kwargs)
 
+        self.width = width
+        self.depth = depth
+        self.num_cls = num_cls
+        self.ws = ws
+
         _conv2d_setting = {
             'filters': width,
             'kernel_size': 3,
@@ -90,19 +95,19 @@ class MixHead(keras.Model):
             'kernel_initializer': tf.initializers.RandomNormal(0.0, 0.01)
         }
 
-        self.reg_blocks = keras.Sequential()
+        self.reg_blocks = []
         for _ in range(depth):
-            self.reg_blocks.add(keras.layers.Conv2D(**_conv2d_setting))
-            self.reg_blocks.add(keras.layers.Activation(tf.nn.relu))
+            self.reg_blocks.append(keras.layers.Conv2D(**_conv2d_setting))
+            self.reg_blocks.append(keras.layers.Activation(tf.nn.relu))
 
-        self.cls_blocks = keras.Sequential()
+        self.cls_blocks = []
         for _ in range(depth):
             if ws:
-                self.cls_blocks.add(WSConv2D(**_conv2d_setting))
+                self.cls_blocks.append(WSConv2D(**_conv2d_setting))
             else:
-                self.cls_blocks.add(keras.layers.Conv2D(**_conv2d_setting))
-            self.cls_blocks.add(GroupNormalization(groups=16, epsilon=1e-5))
-            self.cls_blocks.add(keras.layers.Activation(tf.nn.relu))
+                self.cls_blocks.append(keras.layers.Conv2D(**_conv2d_setting))
+            self.cls_blocks.append(GroupNormalization(groups=16, epsilon=1e-5))
+            self.cls_blocks.append(keras.layers.Activation(tf.nn.relu))
 
         # Mix Core
         self.p_layer_reg = PreLayer(width=width, kernel_size=3, ws=0)
@@ -124,13 +129,16 @@ class MixHead(keras.Model):
 
     def call(self, inputs, training=None, mask=None):
         # Regression block
-        reg = self.reg_blocks(inputs)
+        reg = inputs
+        for reg_layer in self.reg_blocks:
+            reg = reg_layer(reg)
 
         # Mix Core
         cls = _merge_method(self.p_layer_reg(reg), self.p_layer_cls(inputs))
 
         # Classification block
-        cls = self.cls_blocks(cls)
+        for cls_layer in self.cls_blocks:
+            cls = cls_layer(cls)
 
         reg = self.reg_conv2d(reg)
         cls = self.cls_conv2d(cls)
@@ -140,7 +148,16 @@ class MixHead(keras.Model):
         return cls, reg
 
     def get_config(self):
-        pass
+        cfg = super(MixHead, self).get_config()
+        cfg.update(
+            {
+                'width': self.width,
+                'depth': self.depth,
+                'num_cls': self.num_cls,
+                'ws': self.ws
+            }
+        )
+        return cfg
 
 
 def MixSubnetworks(input_features, width=256, depth=4, num_cls=20):

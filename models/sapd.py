@@ -19,6 +19,7 @@ class FeatureSelectInput(keras.layers.Layer):
         self.pool_size = pool_size
         super(FeatureSelectInput, self).__init__(**kwargs)
 
+    @tf.function
     def call(self, inputs, **kwargs):
         # (Batch, Max_Bboxes_count, 4)
         batch_gt_boxes = inputs[0][..., :4]
@@ -83,6 +84,25 @@ class FeatureSelectInput(keras.layers.Layer):
             "pool_size": self.pool_size,
         })
         return c
+
+
+@tf.function
+def _create_reg_positive_sample(bboxes, x1, y1, x2, y2, stride):
+    shift_xx = (tf.cast(tf.range(x1, x2), dtype=tf.float32) + 0.5) * stride
+    shift_yy = (tf.cast(tf.range(y1, y2), dtype=tf.float32) + 0.5) * stride
+    shift_xx, shift_yy = tf.meshgrid(shift_xx, shift_yy)
+    shifts = tf.stack((shift_xx, shift_yy), axis=-1)
+
+    l = tf.maximum(shifts[..., 0] - bboxes[0], 0)
+    t = tf.maximum(shifts[..., 1] - bboxes[1], 0)
+    r = tf.maximum(bboxes[2] - shifts[..., 0], 0)
+    b = tf.maximum(bboxes[3] - shifts[..., 1], 0)
+
+    reg_target = tf.stack((l, t, r, b), axis=-1) / 4.0 / stride
+    anchor_pots = tf.minimum(l, r) * tf.minimum(t, b) / tf.maximum(l, r) / tf.maximum(t, b)
+    area = (l + r) * (t + b)
+
+    return reg_target, anchor_pots, area
 
 
 def _build_map_function_feature_select_target(
@@ -189,17 +209,8 @@ def _build_map_function_feature_select_target(
                 locs_reg_pred_i = tf.reshape(locs_reg_pred_i, (-1, tf.shape(locs_reg_pred_i)[-1]))
 
                 """ Creating Positive sample from Regression Subnet """
-                shift_xx = (tf.cast(tf.range(x1_, x2_), dtype=tf.float32) + 0.5) * stride
-                shift_yy = (tf.cast(tf.range(y1_, y2_), dtype=tf.float32) + 0.5) * stride
-                shift_xx, shift_yy = tf.meshgrid(shift_xx, shift_yy)
-                shift_xx = tf.reshape(shift_xx, (-1,))
-                shift_yy = tf.reshape(shift_yy, (-1,))
-                shifts = tf.stack((shift_xx, shift_yy), axis=-1)
-                l = tf.maximum(shifts[:, 0] - gt_box[0], 0)
-                t = tf.maximum(shifts[:, 1] - gt_box[1], 0)
-                r = tf.maximum(gt_box[2] - shifts[:, 0], 0)
-                b = tf.maximum(gt_box[3] - shifts[:, 1], 0)
-                locs_reg_true_i = tf.stack([l, t, r, b], axis=-1) / 4.0 / stride
+                locs_reg_true_i = _create_reg_positive_sample(gt_box, x1_, y1_, x2_, y2_, stride)[0]
+                locs_reg_true_i = tf.reshape(locs_reg_true_i, (-1, 4))
 
                 """ Creating Positive sample from Classification Subnet """
                 locs_cls_true_i = tf.zeros_like(locs_cls_pred_i)
@@ -550,18 +561,21 @@ def _build_map_function_module_target(
                 neg_pad = tf.stack([neg_top_bot, neg_lef_rit], axis=0)
 
                 """ Regression Target: create positive sample """
-                pos_shift_xx = (tf.cast(tf.range(pos_x1_, pos_x2_), dtype=tf.float32) + 0.5) * stride
-                pos_shift_yy = (tf.cast(tf.range(pos_y1_, pos_y2_), dtype=tf.float32) + 0.5) * stride
-                pos_shift_xx, pos_shift_yy = tf.meshgrid(pos_shift_xx, pos_shift_yy)
-                pos_shifts = tf.stack((pos_shift_xx, pos_shift_yy), axis=-1)
-                dl = tf.maximum(pos_shifts[:, :, 0] - gt_box[0], 0)
-                dt = tf.maximum(pos_shifts[:, :, 1] - gt_box[1], 0)
-                dr = tf.maximum(gt_box[2] - pos_shifts[:, :, 0], 0)
-                db = tf.maximum(gt_box[3] - pos_shifts[:, :, 1], 0)
-                deltas = tf.stack((dl, dt, dr, db), axis=-1)
-                level_box_regr_pos_target = deltas / 4.0 / stride
-                level_pos_box_ap_weight = tf.minimum(dl, dr) * tf.minimum(dt, db) / tf.maximum(dl, dr) / tf.maximum(dt,
-                                                                                                                    db)
+                # pos_shift_xx = (tf.cast(tf.range(pos_x1_, pos_x2_), dtype=tf.float32) + 0.5) * stride
+                # pos_shift_yy = (tf.cast(tf.range(pos_y1_, pos_y2_), dtype=tf.float32) + 0.5) * stride
+                # pos_shift_xx, pos_shift_yy = tf.meshgrid(pos_shift_xx, pos_shift_yy)
+                # pos_shifts = tf.stack((pos_shift_xx, pos_shift_yy), axis=-1)
+                # dl = tf.maximum(pos_shifts[:, :, 0] - gt_box[0], 0)
+                # dt = tf.maximum(pos_shifts[:, :, 1] - gt_box[1], 0)
+                # dr = tf.maximum(gt_box[2] - pos_shifts[:, :, 0], 0)
+                # db = tf.maximum(gt_box[3] - pos_shifts[:, :, 1], 0)
+                # deltas = tf.stack((dl, dt, dr, db), axis=-1)
+                # level_box_regr_pos_target = deltas / 4.0 / stride
+                # level_pos_box_ap_weight= tf.minimum(dl, dr) * tf.minimum(dt, db) / tf.maximum(dl, dr) / tf.maximum(dt,
+                #                                                                                                    db)
+                level_box_regr_pos_target, level_pos_box_ap_weight, level_box_pos_area = _create_reg_positive_sample(
+                    gt_box, pos_x1_, pos_y1_, pos_x2_, pos_y2_, stride
+                )
                 level_pos_box_soft_weight = level_pos_box_ap_weight * level_box_meta_select_weight
                 # level_pos_box_soft_weight = (1 - level_pos_box_ap_weight) * level_box_meta_select_weight  # ?
 
@@ -594,7 +608,7 @@ def _build_map_function_module_target(
                 # shape = (fh, fw, 4 + 2)
                 level_box_regr_target = tf.concat([level_box_regr_target, level_box_soft_weight[..., None],
                                                    level_box_regr_mask[..., None]], axis=-1)
-                level_box_pos_area = (dl + dr) * (dt + db)
+                # level_box_pos_area = (dl + dr) * (dt + db)
                 # (fh, fw)
                 level_box_area = tf.pad(level_box_pos_area, neg_pad, constant_values=1e7)
                 # level_box_area = tf.pad(level_pos_box_ap_weight ** 0.5, neg_pad, constant_values=0.)

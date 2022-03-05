@@ -62,7 +62,7 @@ def focal_mask(alpha=0.25, gamma=2.0, cutoff=0.0):
 
 class FocalLoss(keras.layers.Layer):
     def __init__(self, alpha=0.25, gamma=2.0, *args, **kwargs):
-        super(FocalLoss, self).__init__(*args, **kwargs)
+        super(FocalLoss, self).__init__(dtype='float32', *args, **kwargs)
         self.alpha = alpha
         self.gamma = gamma
         self.fnc = focal_mask(alpha=alpha, gamma=gamma)

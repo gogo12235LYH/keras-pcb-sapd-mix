@@ -278,7 +278,7 @@ def iou_mask_v2(mode='fciou', factor=1.0):
 
 class IoULoss(keras.layers.Layer):
     def __init__(self, mode='fciou', factor=1.0, *args, **kwargs):
-        super(IoULoss, self).__init__(*args, **kwargs)
+        super(IoULoss, self).__init__(dtype='float32', *args, **kwargs)
         self.mode = mode
         self.factor = factor
         self.fnc = iou_mask_v2(mode, factor)

@@ -4,7 +4,7 @@ import tensorflow.keras as keras
 
 class FSNLoss(keras.layers.Layer):
     def __init__(self, factor=0.1, *args, **kwargs):
-        super(FSNLoss, self).__init__(*args, **kwargs)
+        super(FSNLoss, self).__init__(dtype='float32', *args, **kwargs)
         self.factor = factor
 
     def call(self, inputs, **kwargs):

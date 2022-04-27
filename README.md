@@ -3,15 +3,17 @@
 
 _此貢獻為記錄原始研究程式碼及數據成果，初始環境為 Ubuntu 18.04, Tensorflow 2.3.0_ :moon: [LINK](http://etheses.lib.ntust.edu.tw/cgi-bin/gs32/gsweb.cgi?o=dstdcdr&s=id=%22G0M10812020%22.&searchmode=basic)
 
-* _目前支援 Tensorflow 2.6.0_
+* _Tensorflow 2.6.0_
 
 ---
 
 Soft-Anchor Point Detector (SAPD), Printed Circuit Board (PCB), Defect Detection, Subnetworks
 
+![image](https://github.com/gogo12235LYH/keras-pcb-sapd-mix/blob/master/fig/mix.png)
+
 ## :fire: To Do List
 
-1. ~~完成 README.md~~ < 應該算完成了
+1. ~~完成 README.md~~ 
 2. ~~資料集轉換 (tfds 建立)~~ Done < [build-tfds](https://github.com/gogo12235LYH/build-tfds) 
 3. ~~透過 tf.data 取代 keras.Sequence 來增加 GPU使用率 (目前測試多卡訓練，在linux可使用keras sequence
 則windows 就必須使用 tf.data才能夠穩定使用多卡訓練)~~ < tf.data，建議依據自己的環境來優化
@@ -19,6 +21,7 @@ Soft-Anchor Point Detector (SAPD), Printed Circuit Board (PCB), Defect Detection
 ---
 
 ## Updates
+* 2022.04.27 - 新增 混合精度訓練模式與優化程式。
 * 2021.12.26 - 更新 generator.pipeline 中 shuffle 參數 (buffer size)，更改為訓練集數量大小。:point_right: [Why ?](https://stackoverflow.com/a/48096625/17764502)
 * 2021.11.16 - 修正 keras 訓練時需要虛設損失函數目標，透過 add_loss 及 add_metric 解決。
 
@@ -73,6 +76,8 @@ To enable them in other operations, rebuild TensorFlow with the appropriate comp
 ---
 
 ## 2. 訓練-Training
+
+![image](https://github.com/gogo12235LYH/keras-pcb-sapd-mix/blob/master/fig/arc.png)
 
 在 [SAPD](https://arxiv.org/abs/1911.12448) 研究中說明到訓練時， 可在前期訓練將 Feature Selection Network (FSN) 預測權重設定為擁有最低損失的特徵金字塔層(FSN 的
 ground truth)， 後續訓練則選擇預測結果前三高來進行訓練時的抑制。

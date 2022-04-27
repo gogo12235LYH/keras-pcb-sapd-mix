@@ -32,8 +32,8 @@ class FeaturePyramidNetwork(keras.layers.Layer):
         From : https://keras.io/examples/vision/retinanet/
     """
 
-    def __init__(self, interpolation='nearest', **kwargs):
-        super(FeaturePyramidNetwork, self).__init__(name='FPN', **kwargs)
+    def __init__(self, interpolation='nearest', name='FPN', **kwargs):
+        super(FeaturePyramidNetwork, self).__init__(name=name, **kwargs)
 
         self.interpolation = interpolation
 
@@ -59,17 +59,17 @@ class FeaturePyramidNetwork(keras.layers.Layer):
         p5 = self.l_conv2d_c5(c5)
         p5 = self.conv2d_p5(p5)
 
-        # Upsample and Merge
+        # Up-sample and Merge
         p4 = self.l_conv2d_c4(c4)
         p4 = keras.layers.Add()(
-            [keras.layers.UpSampling2D(2, self.interpolation)(p5), p4]
+            [keras.layers.UpSampling2D(2, interpolation=self.interpolation)(p5), p4]
         )
         p4 = self.conv2d_p4(p4)
 
-        # Upsample and Merge
+        # Up-sample and Merge
         p3 = self.l_conv2d_c3(c3)
         p3 = keras.layers.Add()(
-            [keras.layers.UpSampling2D(2, self.interpolation)(p4), p3]
+            [keras.layers.UpSampling2D(2, interpolation=self.interpolation)(p4), p3]
         )
         p3 = self.conv2d_p3(p3)
 
@@ -78,6 +78,12 @@ class FeaturePyramidNetwork(keras.layers.Layer):
 
         # down-sampling
         p7 = self.down_conv2d_p7(tf.nn.relu(p6))
+
+        p3 = keras.layers.Activation('linear', dtype='float32')(p3)
+        p4 = keras.layers.Activation('linear', dtype='float32')(p4)
+        p5 = keras.layers.Activation('linear', dtype='float32')(p5)
+        p6 = keras.layers.Activation('linear', dtype='float32')(p6)
+        p7 = keras.layers.Activation('linear', dtype='float32')(p7)
 
         return p3, p4, p5, p6, p7
 

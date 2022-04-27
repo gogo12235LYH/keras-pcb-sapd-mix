@@ -3,7 +3,6 @@ from tensorflow.python.keras.utils.data_utils import get_file
 import tensorflow.keras as keras
 from models.sapd import SAPD
 from tensorflow_addons.optimizers import SGDW, AdamW
-from models.losses import model_loss
 import config
 
 
@@ -122,7 +121,7 @@ def model_compile(info, model_name, optimizer):
     model_, pred_model_ = SAPD(soft=True if config.MODE in [2, 4] else False, num_cls=config.NUM_CLS,
                                depth=config.SUBNET_DEPTH, resnet=config.BACKBONE, freeze_bn=config.FREEZE_BN)
 
-    print(f"{info} Loading Weight... ", end='')
+    print(f"{info} Loading Weight... ")
     load_weights(input_model=model_, model_name=model_name)
 
     print(f"{info} Model Compiling... ")

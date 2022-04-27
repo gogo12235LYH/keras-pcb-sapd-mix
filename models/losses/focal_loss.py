@@ -29,6 +29,32 @@ def compute_focal(alpha=0.25, gamma=2.0, cutoff=0.0):
     return focal_
 
 
+def compute_focal_v2(alpha=0.25, gamma=2.0, cutoff=0.0):
+    @tf.function(jit_compile=True)
+    def focal_(y_true, y_pred):
+        """
+            Focal Loss(Pos): CE(y_ture, y_pred) * alpha * (1 - pred) ** beta
+            Focal Loss(Neg): CE(y_ture, y_pred) * (1 - alpha) * pred ** beta
+        """
+
+        # (batch, anchor-points, classes)
+        """ Positive sample: alpha, Negative sample: 1 - alpha """
+        alpha_factor = tf.ones_like(y_true) * alpha
+        alpha_factor = tf.where(tf.greater(y_true, cutoff), alpha_factor, 1 - alpha_factor)
+
+        """ Positive sample: 1 - pred, Negative sample: pred """
+        focal_weight = tf.where(tf.greater(y_true, cutoff), 1 - y_pred, y_pred)
+        focal_weight = alpha_factor * focal_weight ** gamma
+
+        """ Focal loss """
+        classification_loss = focal_weight * keras.backend.binary_crossentropy(y_true, y_pred)
+        normalizer = tf.cast(tf.shape(y_pred)[2], tf.float32)
+        normalizer = tf.maximum(1.0, normalizer)
+        return tf.reduce_sum(classification_loss, -1) / normalizer
+
+    return focal_
+
+
 def focal_mask(alpha=0.25, gamma=2.0, cutoff=0.0):
     @tf.function(jit_compile=True)
     def focal_mask_(inputs):
@@ -43,16 +69,52 @@ def focal_mask(alpha=0.25, gamma=2.0, cutoff=0.0):
         # y_pred: (Batch, Anchor-points, classes)
         y_pred = inputs[1]
 
-        alpha_factor = keras.backend.ones_like(y_true) * alpha
+        alpha_factor = tf.ones_like(y_true) * alpha
         alpha_factor = tf.where(tf.greater(y_true, cutoff), alpha_factor, 1 - alpha_factor)
 
         focal_weight = tf.where(tf.greater(y_true, cutoff), 1 - y_pred, y_pred)
         focal_weight = alpha_factor * focal_weight ** gamma
 
         soft_weight = tf.expand_dims(soft_weight, axis=-1)
-        cls_loss = focal_weight * soft_weight * tf.keras.backend.binary_crossentropy(y_true, y_pred)
+        cls_loss = focal_weight * soft_weight * keras.backend.binary_crossentropy(y_true, y_pred)
 
-        # compute the normalizer: the number of positive locations
+        # compute the normalizer: the number of positive location
+        num_pos = tf.reduce_sum(mask * soft_weight[..., 0])
+        normalizer = tf.maximum(1.0, tf.cast(num_pos, dtype=tf.float32))
+        return tf.reduce_sum(cls_loss) / normalizer
+
+    return focal_mask_
+
+
+def focal_mask_v2(alpha=0.25, gamma=2.0, cutoff=0.0):
+    @tf.function(jit_compile=True)
+    def focal_mask_(inputs):
+        """
+            Focal Loss(Pos): CE(y_ture, y_pred) * alpha * (1 - pred) ** beta
+            Focal Loss(Neg): CE(y_ture, y_pred) * (1 - alpha) * pred ** beta
+        """
+
+        # y_ture: (Batch, Anchor-points, classes + 2)
+        y_true, soft_weight, mask = inputs[0][..., :-2], inputs[0][..., -2], inputs[0][..., -1]
+
+        # y_pred: (Batch, Anchor-points, classes)
+        y_pred = inputs[1]
+
+        # fmn_pred: (Batch, Anchor-points, 1)
+        fmn_pred = inputs[2]
+
+        alpha_factor = tf.ones_like(y_true) * alpha
+        alpha_factor = tf.where(tf.greater(y_true, cutoff), alpha_factor, 1 - alpha_factor)
+
+        focal_weight = tf.where(tf.greater(y_true, cutoff), 1 - y_pred, y_pred)
+        focal_weight = alpha_factor * focal_weight ** gamma
+
+        soft_weight = tf.expand_dims(soft_weight, axis=-1)
+        soft_weight *= fmn_pred
+
+        cls_loss = focal_weight * soft_weight * keras.backend.binary_crossentropy(y_true, y_pred)
+
+        # compute the normalizer: the number of positive location
         num_pos = tf.reduce_sum(mask * soft_weight[..., 0])
         normalizer = tf.maximum(1.0, tf.cast(num_pos, dtype=tf.float32))
         return tf.reduce_sum(cls_loss) / normalizer
@@ -61,11 +123,15 @@ def focal_mask(alpha=0.25, gamma=2.0, cutoff=0.0):
 
 
 class FocalLoss(keras.layers.Layer):
-    def __init__(self, alpha=0.25, gamma=2.0, *args, **kwargs):
-        super(FocalLoss, self).__init__(dtype='float32', *args, **kwargs)
+    def __init__(self, alpha=0.25, gamma=2.0, name='cls_loss', test=False, **kwargs):
+        super(FocalLoss, self).__init__(dtype='float32', name=name, **kwargs)
         self.alpha = alpha
         self.gamma = gamma
-        self.fnc = focal_mask(alpha=alpha, gamma=gamma)
+
+        if not test:
+            self.fnc = focal_mask(alpha=alpha, gamma=gamma)
+        else:
+            self.fnc = focal_mask_v2(alpha=alpha, gamma=gamma)
 
     def call(self, inputs, **kwargs):
         loss = self.fnc(inputs)
@@ -76,6 +142,9 @@ class FocalLoss(keras.layers.Layer):
     def get_config(self):
         cfg = super(FocalLoss, self).get_config()
         cfg.update(
-            {'alpha': self.alpha, 'gamma': self.gamma}
+            {
+                'alpha': self.alpha,
+                'gamma': self.gamma
+            }
         )
         return cfg

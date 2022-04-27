@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow.keras.backend as k
 import numpy as np
-from tensorflow import keras
+import tensorflow.keras as keras
 from utils import util_graph
 
 
@@ -179,7 +179,7 @@ class Locations2(keras.layers.Layer):
 
     def __init__(self, strides=(8, 16, 32, 64, 128), *args, **kwargs):
         self.strides = strides
-        super(Locations2, self).__init__(*args, **kwargs)
+        super(Locations2, self).__init__(dtype='float32', *args, **kwargs)
 
     def call(self, inputs, **kwargs):
         # Each inputs' shape : (B, F_H, F_W, Filter) from FPN's [P3, P4, P5, P6, P7]
@@ -223,17 +223,6 @@ class Locations2(keras.layers.Layer):
         strides = tf.concat(strides_per_feature, axis=0)
         strides = tf.tile(tf.expand_dims(strides, axis=0), (tf.shape(inputs[0])[0], 1))
         return [locations, strides]
-
-    def compute_output_shape(self, input_shape):
-        feature_shapes = [k.shape(feature)[1:3] for feature in input_shape]
-        total_count = 1
-        for feature_shape in feature_shapes:
-            if None not in feature_shape:
-                total_count = total_count * feature_shape[0] * feature_shape[1]
-            else:
-                return input_shape[0][0], None, 2
-
-        return input_shape[0][0], total_count, 2
 
     def get_config(self):
         config = super(Locations2, self).get_config()
@@ -284,7 +273,10 @@ class RegressionBoxes2(keras.layers.Layer):
         Src : Retinanet, https://github.com/fizyr/keras-retinanet
     """
 
-    def call(self, inputs, **kwargs):
+    def __init__(self, **kwargs):
+        super(RegressionBoxes2, self).__init__(**kwargs)
+
+    def call(self, inputs, *args, **kwargs):
         locations, strides, regression = inputs
 
         x1 = locations[:, :, 0] - regression[:, :, 0] * 4.0 * strides[:, :]
@@ -293,9 +285,6 @@ class RegressionBoxes2(keras.layers.Layer):
         y2 = locations[:, :, 1] + regression[:, :, 3] * 4.0 * strides[:, :]
 
         return tf.stack([x1, y1, x2, y2], axis=-1)
-
-    def compute_output_shape(self, input_shape):
-        return input_shape[2]
 
     def get_config(self):
         config = super(RegressionBoxes2, self).get_config()
@@ -333,7 +322,10 @@ class ClipBoxes2(keras.layers.Layer):
         過濾圈選框的座標位置，確保所有框都在輸入影像範圍內。
     """
 
-    def call(self, inputs, **kwargs):
+    def __init__(self, **kwargs):
+        super(ClipBoxes2, self).__init__(dtype='float32', **kwargs)
+
+    def call(self, inputs, *args, **kwargs):
         # inputs.shape = [(B, height, width, channel)(B, FS, 4)]
         inputs_image, boxes = inputs
         shape = tf.cast(tf.shape(inputs_image), tf.float32)
@@ -585,7 +577,7 @@ class FilterDetections(keras.layers.Layer):
         self.score_threshold = score_threshold
         self.max_detections = max_detections
         self.parallel_iterations = parallel_iterations
-        super(FilterDetections, self).__init__(**kwargs)
+        super(FilterDetections, self).__init__(dtype='float32', **kwargs)
 
     def call(self, inputs, **kwargs):
         boxes = inputs[0]
@@ -656,6 +648,7 @@ class FilterDetections2(keras.layers.Layer):
             parallel_iterations=32,
             **kwargs
     ):
+        super(FilterDetections2, self).__init__(dtype='float32', **kwargs)
         self.nms = nms
         self.s_nms = s_nms
         self.class_specific_filter = class_specific_filter
@@ -663,7 +656,6 @@ class FilterDetections2(keras.layers.Layer):
         self.score_threshold = score_threshold
         self.max_detections = max_detections
         self.parallel_iterations = parallel_iterations
-        super(FilterDetections2, self).__init__(**kwargs)
 
     def call(self, inputs, **kwargs):
         """
@@ -698,19 +690,6 @@ class FilterDetections2(keras.layers.Layer):
         )
 
         return outputs
-
-    def compute_output_shape(self, input_shape):
-        return [
-            (input_shape[0][0], self.max_detections, 4),
-            (input_shape[1][0], self.max_detections),
-            (input_shape[1][0], self.max_detections),
-        ]
-
-    def compute_mask(self, inputs, mask=None):
-        """
-        This is required in Keras when there is more than 1 output.
-        """
-        return (len(inputs) + 1) * [None]
 
     def get_config(self):
         """

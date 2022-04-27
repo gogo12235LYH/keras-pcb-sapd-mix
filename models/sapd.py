@@ -1,7 +1,8 @@
 import tensorflow.keras as keras
 import keras_resnet.models
 import tensorflow as tf
-from utils.util_graph import trim_zero_padding_boxes, normalize_boxes, shrink_and_normalize_boxes
+from utils.util_graph import trim_zero_padding_boxes, normalize_boxes, shrink_and_normalize_boxes, \
+    create_reg_positive_sample
 from models.losses_add import q_focal
 from models.neck.fpn import create_pyramid_features_v2
 from models.layers import Locations2, RegressionBoxes2, ClipBoxes2, FilterDetections2
@@ -17,7 +18,7 @@ class FeatureSelectInput(keras.layers.Layer):
     def __init__(self, strides=STRIDES, pool_size=7, **kwargs):
         self.strides = strides
         self.pool_size = pool_size
-        super(FeatureSelectInput, self).__init__(**kwargs)
+        super(FeatureSelectInput, self).__init__(dtype='float32', **kwargs)
 
     @tf.function
     def call(self, inputs, **kwargs):
@@ -86,25 +87,6 @@ class FeatureSelectInput(keras.layers.Layer):
         return c
 
 
-@tf.function
-def _create_reg_positive_sample(bboxes, x1, y1, x2, y2, stride):
-    shift_xx = (tf.cast(tf.range(x1, x2), dtype=tf.float32) + 0.5) * stride
-    shift_yy = (tf.cast(tf.range(y1, y2), dtype=tf.float32) + 0.5) * stride
-    shift_xx, shift_yy = tf.meshgrid(shift_xx, shift_yy)
-    shifts = tf.stack((shift_xx, shift_yy), axis=-1)
-
-    l = tf.maximum(shifts[..., 0] - bboxes[0], 0)
-    t = tf.maximum(shifts[..., 1] - bboxes[1], 0)
-    r = tf.maximum(bboxes[2] - shifts[..., 0], 0)
-    b = tf.maximum(bboxes[3] - shifts[..., 1], 0)
-
-    reg_target = tf.stack((l, t, r, b), axis=-1) / 4.0 / stride
-    anchor_pots = tf.minimum(l, r) * tf.minimum(t, b) / tf.maximum(l, r) / tf.maximum(t, b)
-    area = (l + r) * (t + b)
-
-    return reg_target, anchor_pots, area
-
-
 def _build_map_function_feature_select_target(
         cls_pred,
         reg_pred,
@@ -142,7 +124,6 @@ def _build_map_function_feature_select_target(
 
     level_losses = []
 
-    # @tf.function
     def _get_iou_score(target, pred):
         # t_l = target[:, 0]
         # t_t = target[:, 1]
@@ -209,7 +190,7 @@ def _build_map_function_feature_select_target(
                 locs_reg_pred_i = tf.reshape(locs_reg_pred_i, (-1, tf.shape(locs_reg_pred_i)[-1]))
 
                 """ Creating Positive sample from Regression Subnet """
-                locs_reg_true_i = _create_reg_positive_sample(gt_box, x1_, y1_, x2_, y2_, stride)[0]
+                locs_reg_true_i = create_reg_positive_sample(gt_box, x1_, y1_, x2_, y2_, stride)[0]
                 locs_reg_true_i = tf.reshape(locs_reg_true_i, (-1, 4))
 
                 """ Creating Positive sample from Classification Subnet """
@@ -270,7 +251,7 @@ class FeatureSelectTarget(keras.layers.Layer):
     def __init__(self, strides=STRIDES, shrink_ratio=SR, **kwargs):
         self.strides = strides
         self.shrink_ratio = shrink_ratio
-        super(FeatureSelectTarget, self).__init__(**kwargs)
+        super(FeatureSelectTarget, self).__init__(dtype='float32', **kwargs)
 
     # @tf.function
     def call(self, inputs, **kwargs):
@@ -433,7 +414,7 @@ class FeatureSelectWeight_V2(keras.layers.Layer):
         self.max_gt_boxes_count = max_gt_boxes_count
         self.soft = soft
 
-        super(FeatureSelectWeight_V2, self).__init__(**kwargs)
+        super(FeatureSelectWeight_V2, self).__init__(dtype='float32', **kwargs)
 
     def call(self, inputs, **kwargs):
         # If Batch size = 1
@@ -573,7 +554,7 @@ def _build_map_function_module_target(
                 # level_box_regr_pos_target = deltas / 4.0 / stride
                 # level_pos_box_ap_weight= tf.minimum(dl, dr) * tf.minimum(dt, db) / tf.maximum(dl, dr) / tf.maximum(dt,
                 #                                                                                                    db)
-                level_box_regr_pos_target, level_pos_box_ap_weight, level_box_pos_area = _create_reg_positive_sample(
+                level_box_regr_pos_target, level_pos_box_ap_weight, level_box_pos_area = create_reg_positive_sample(
                     gt_box, pos_x1_, pos_y1_, pos_x2_, pos_y2_, stride
                 )
                 level_pos_box_soft_weight = level_pos_box_ap_weight * level_box_meta_select_weight
@@ -664,6 +645,137 @@ def _build_map_function_module_target(
         false_function
     )
     return [cls_target, regr_target]
+
+
+def _build_map_function_module_target_dwlm(
+        gt_boxes,
+        feature_maps_shape,
+        shrink_ratio=SR
+):
+    num_cls = NUM_CLS
+    strides_ = (8, 16, 32, 64, 128)
+
+    gt_labels = tf.cast(gt_boxes[:, 4], tf.int32)
+    gt_boxes = gt_boxes[:, :4]
+    gt_boxes, non_zeros = trim_zero_padding_boxes(gt_boxes)
+    gt_labels = tf.boolean_mask(gt_labels, non_zeros)
+
+    cls_target_ = tf.zeros((0, num_cls + 1 + 1), dtype=tf.float32)
+    reg_target_ = tf.zeros((0, 4 + 1 + 1), dtype=tf.float32)
+    ind_target_ = tf.zeros((0, 1), dtype=tf.int32)
+
+    for level_id in range(len(strides_)):
+        stride = strides_[level_id]
+
+        fh = feature_maps_shape[level_id][0]
+        fw = feature_maps_shape[level_id][1]
+
+        pos_x1, pos_y1, pos_x2, pos_y2 = shrink_and_normalize_boxes(gt_boxes, fw, fh, stride, shrink_ratio)
+
+        def build_map_function_target(args):
+            pos_x1_ = args[0]
+            pos_y1_ = args[1]
+            pos_x2_ = args[2]
+            pos_y2_ = args[3]
+            gt_box = args[4]
+            gt_label = args[5]
+
+            """ Create Negative sample """
+            neg_top_bot = tf.stack((pos_y1_, fh - pos_y2_), axis=0)
+            neg_lef_rit = tf.stack((pos_x1_, fw - pos_x2_), axis=0)
+            neg_pad = tf.stack([neg_top_bot, neg_lef_rit], axis=0)
+
+            """ Regression Target: create positive sample """
+            # pos_shift_xx = (tf.cast(tf.range(pos_x1_, pos_x2_), dtype=tf.float32) + 0.5) * stride
+            # pos_shift_yy = (tf.cast(tf.range(pos_y1_, pos_y2_), dtype=tf.float32) + 0.5) * stride
+            # pos_shift_xx, pos_shift_yy = tf.meshgrid(pos_shift_xx, pos_shift_yy)
+            # pos_shifts = tf.stack((pos_shift_xx, pos_shift_yy), axis=-1)
+            # dl = tf.maximum(pos_shifts[:, :, 0] - gt_box[0], 0)
+            # dt = tf.maximum(pos_shifts[:, :, 1] - gt_box[1], 0)
+            # dr = tf.maximum(gt_box[2] - pos_shifts[:, :, 0], 0)
+            # db = tf.maximum(gt_box[3] - pos_shifts[:, :, 1], 0)
+            # deltas = tf.stack((dl, dt, dr, db), axis=-1)
+            # level_box_regr_pos_target = deltas / 4.0 / stride
+            # level_pos_box_ap_weight= tf.minimum(dl, dr) * tf.minimum(dt, db) / tf.maximum(dl, dr) / tf.maximum(dt,
+            #                                                                                                    db)
+            level_box_regr_pos_target, level_pos_box_ap_weight, level_box_pos_area = create_reg_positive_sample(
+                gt_box, pos_x1_, pos_y1_, pos_x2_, pos_y2_, stride
+            )
+            level_pos_box_soft_weight = level_pos_box_ap_weight
+            # level_pos_box_soft_weight = (1 - level_pos_box_ap_weight) * level_box_meta_select_weight  # ?
+
+            """ Classification Target: create positive sample """
+            level_pos_box_cls_target = tf.zeros((pos_y2_ - pos_y1_, pos_x2_ - pos_x1_, num_cls), dtype=tf.float32)
+            level_pos_box_gt_label_col = tf.ones((pos_y2_ - pos_y1_, pos_x2_ - pos_x1_, 1), dtype=tf.float32)
+            level_pos_box_cls_target = tf.concat((level_pos_box_cls_target[..., :gt_label],
+                                                  level_pos_box_gt_label_col,
+                                                  level_pos_box_cls_target[..., gt_label + 1:]), axis=-1)
+
+            """ Padding Classification Target's negative sample """
+            level_box_cls_target = tf.pad(level_pos_box_cls_target,
+                                          tf.concat((neg_pad, tf.constant([[0, 0]])), axis=0))
+
+            """ Padding Soft Anchor's negative sample """
+            level_box_soft_weight = tf.pad(level_pos_box_soft_weight, neg_pad, constant_values=1)
+
+            """ Creating Positive Sample locations and padding it's negative sample """
+            level_pos_box_regr_mask = tf.ones((pos_y2_ - pos_y1_, pos_x2_ - pos_x1_))
+            level_box_regr_mask = tf.pad(level_pos_box_regr_mask, neg_pad)
+
+            """ Padding Regression Target's negative sample """
+            level_box_regr_target = tf.pad(level_box_regr_pos_target,
+                                           tf.concat((neg_pad, tf.constant([[0, 0]])), axis=0))
+
+            """ Output Target """
+            # shape = (fh, fw, cls_num + 2)
+            level_box_cls_target = tf.concat([level_box_cls_target, level_box_soft_weight[..., None],
+                                              level_box_regr_mask[..., None]], axis=-1)
+            # shape = (fh, fw, 4 + 2)
+            level_box_regr_target = tf.concat([level_box_regr_target, level_box_soft_weight[..., None],
+                                               level_box_regr_mask[..., None]], axis=-1)
+            # level_box_pos_area = (dl + dr) * (dt + db)
+            # (fh, fw)
+            level_box_area = tf.pad(level_box_pos_area, neg_pad, constant_values=1e7)
+            return level_box_cls_target, level_box_regr_target, level_box_area
+
+        # cls_target : shape = (True_Label_count, fh, fw, cls_num + 2)
+        # reg_target : shape = (True_Label_count, fh, fw, 4 + 2)
+        # area : shape = (True_Label_count, fh, fw)
+        level_cls_target, level_regr_target, level_area = tf.map_fn(
+            build_map_function_target,
+            elems=[pos_x1, pos_y1, pos_x2, pos_y2, gt_boxes, gt_labels],
+            fn_output_signature=(tf.float32, tf.float32, tf.float32),
+        )
+
+        # min area : shape = (objects, fh, fw) --> (fh, fw)
+        level_min_area_box_indices = tf.argmin(level_area, axis=0, output_type=tf.int32)
+        # (fh, fw) --> (fh * fw)
+        level_min_area_box_indices = tf.reshape(level_min_area_box_indices, (-1,))
+
+        # (fw, ), (fh, )
+        locs_x, locs_y = tf.range(0, fw), tf.range(0, fh)
+
+        # (fh, fw) --> (fh * fw)
+        locs_xx, locs_yy = tf.meshgrid(locs_x, locs_y)
+        locs_xx = tf.reshape(locs_xx, (-1,))
+        locs_yy = tf.reshape(locs_yy, (-1,))
+
+        # (fh * fw, 3)
+        level_indices = tf.stack((level_min_area_box_indices, locs_yy, locs_xx), axis=-1)
+
+        """ Select """
+        level_cls_target = tf.gather_nd(level_cls_target, level_indices)
+        level_regr_target = tf.gather_nd(level_regr_target, level_indices)
+
+        cls_target_ = tf.concat([cls_target_, level_cls_target], axis=0)
+        reg_target_ = tf.concat([reg_target_, level_regr_target], axis=0)
+        ind_target_ = tf.concat([ind_target_, tf.expand_dims(level_min_area_box_indices, -1)], axis=0)
+
+    ind_target_ = tf.where(
+        tf.equal(cls_target_[..., -1], 1.), ind_target_[..., 0], -1
+    )[..., None]
+
+    return [cls_target_, reg_target_, ind_target_, tf.shape(gt_boxes)[0][..., None]]
 
 
 def _build_map_function_module_target_iou(
@@ -841,12 +953,12 @@ def _build_map_function_module_target_iou(
     return [cls_target, regr_target]
 
 
-class Target(keras.layers.Layer):
+class Target_v1(keras.layers.Layer):
     def __init__(self, num_cls=NUM_CLS, strides=STRIDES, shrink_ratio=SR, **kwargs):
         self.num_cls = num_cls,
         self.strides = strides,
         self.shrink_ratio = shrink_ratio
-        super(Target, self).__init__(**kwargs)
+        super(Target_v2, self).__init__(dtype='float32', **kwargs)
 
     def call(self, inputs, **kwargs):
         # (Batch, 5, 2)
@@ -889,7 +1001,48 @@ class Target(keras.layers.Layer):
         return outputs
 
     def get_config(self):
-        c = super(Target, self).get_config()
+        c = super(Target_v2, self).get_config()
+        c.update({
+            'num_cls': self.num_cls,
+            'strides': self.strides,
+            'shrink_ratio': self.shrink_ratio
+        })
+        return c
+
+
+class Target_v2(keras.layers.Layer):
+    def __init__(self, num_cls=NUM_CLS, strides=STRIDES, shrink_ratio=SR, **kwargs):
+        self.num_cls = num_cls,
+        self.strides = strides,
+        self.shrink_ratio = shrink_ratio
+        super(Target_v2, self).__init__(dtype='float32', **kwargs)
+
+    def call(self, inputs, **kwargs):
+        # (Batch, 5, 2)
+        feature_map_shapes = inputs[0][0]
+
+        # (Batch, Max_Bboxes_count, 5)
+        batch_gt_boxes = inputs[1]
+
+        def _build_map_function_batch_module_target(args):
+            """ For Batch axis. """
+            gt_boxes = args[0]
+
+            return _build_map_function_module_target_dwlm(
+                gt_boxes=gt_boxes,
+                shrink_ratio=self.shrink_ratio,
+                feature_maps_shape=feature_map_shapes
+            )
+
+        outputs = tf.map_fn(
+            _build_map_function_batch_module_target,
+            elems=[batch_gt_boxes],
+            fn_output_signature=[tf.float32, tf.float32],
+        )
+        return outputs
+
+    def get_config(self):
+        c = super(Target_v2, self).get_config()
         c.update({
             'num_cls': self.num_cls,
             'strides': self.strides,
@@ -904,18 +1057,8 @@ def freeze_model_bn(model_):
             layer.trainable = False
 
 
-def freeze_model_half(model_):
-    for i, layer in enumerate(model_.layers):
-        if i >= int(len(model_.layers) * 0.5):
-            layer.trainable = True
-            if isinstance(layer, keras_resnet.layers.BatchNormalization):
-                layer.trainable = False
-        else:
-            layer.trainable = False
-
-
 # 2020-10-14, Build BackBone
-def _build_backbone(resnet=50, image_input=None, freeze_bn=False):
+def _build_backbone_v1(resnet=50, image_input=None, freeze_bn=False):
     setting = {
         'inputs': image_input,
         'include_top': False,
@@ -925,16 +1068,12 @@ def _build_backbone(resnet=50, image_input=None, freeze_bn=False):
     if resnet == 50:
         backbone = keras_resnet.models.ResNet50(**setting)
 
-        if config.FREEZE_HALF_BACKBONE:
-            freeze_model_half(backbone)
-
         if config.FREEZE_BACKBONE:
             backbone.trainable = False
 
     elif resnet == 101:
         backbone = keras_resnet.models.ResNet101(**setting)
-        if config.FREEZE_HALF_BACKBONE:
-            freeze_model_half(backbone)
+
         if config.FREEZE_BACKBONE:
             backbone.trainable = False
 
@@ -977,6 +1116,27 @@ def _build_backbone(resnet=50, image_input=None, freeze_bn=False):
     return backbone
 
 
+def _build_backbone_v2(name='resnet', depth=50):
+    backbone = None
+    outputs = None
+
+    if name == 'resnet':
+        output_layers = ["conv3_block4_out", "conv4_block6_out", "conv5_block3_out"]
+
+        if depth == 50:
+            from tensorflow.keras.applications import ResNet50
+
+            backbone = ResNet50(include_top=False, input_shape=[None, None, 3])
+            outputs = [backbone.get_layer(layer_name).output for layer_name in output_layers]
+
+    else:
+        raise ValueError('Wrong Backbone Name !')
+
+    return keras.Model(
+        inputs=[backbone.inputs], outputs=outputs
+    )
+
+
 def _build_head_subnets(input_features, width, depth, num_cls):
     cls_pred, reg_pred = [], []
 
@@ -992,8 +1152,12 @@ def _build_head_subnets(input_features, width, depth, num_cls):
         cls_pred, reg_pred = MixSubnetworks(**_setting)
 
     elif config.HEAD == 'Std':
-        from models.head import StdSubnetworks
-        cls_pred, reg_pred = StdSubnetworks(**_setting)
+        # from models.head import StdSubnetworks
+        # cls_pred, reg_pred = StdSubnetworks(**_setting)
+
+        from models.head.std_head import Subnetworks
+        head = Subnetworks(width, depth, num_cls)
+        cls_pred, reg_pred = head(input_features)
 
     elif config.HEAD == 'Align':
         from models.head import AlignSubnetworks
@@ -1004,10 +1168,10 @@ def _build_head_subnets(input_features, width, depth, num_cls):
 
 def _build_FSN(width):
     if config.FSN == 'V3':
-        from models.neck import FSN
-        return FSN(
+        from models.neck import FeatureSelectionNetwork
+        return FeatureSelectionNetwork(
             width=width, depth=3,
-            fpn_level=len(STRIDES), ws=config.FSN_WS
+            fpn_level=len(STRIDES), ws=0
         )
 
 
@@ -1018,8 +1182,8 @@ MODEL_CONFIG = {
     "FeatureSelectWeight_V2": FeatureSelectWeight_V2,
     "FocalLoss": FocalLoss,
     "IoULoss": IoULoss,
-    "Target": Target,
-    "_build_backbone": _build_backbone,
+    "Target": Target_v2,
+    "_build_backbone": _build_backbone_v1,
     "create_pyramid_features_v2": create_pyramid_features_v2,
     "_build_head_subnets": _build_head_subnets,
     "_build_FSN": _build_FSN
@@ -1051,11 +1215,13 @@ def SAPD(
     feature_maps_shape_input = keras.layers.Input((5, 2), dtype=tf.int32, name='fmaps_shape')
 
     """ Creating Backbone """
-    backbone = _build_backbone(resnet=resnet, image_input=image_input, freeze_bn=freeze_bn)
-    C3, C4, C5 = backbone.outputs[1:] if config.BACKBONE_TYPE == 'ResNetV1' else backbone
+    backbone = _build_backbone_v2()
+    C3, C4, C5 = backbone(image_input)
 
     """ Creating Feature Pyramid Network """
-    features = create_pyramid_features_v2(C3, C4, C5, n=0)
+    from models.neck import FeaturePyramidNetwork
+    fpn = FeaturePyramidNetwork()
+    features = fpn([C3, C4, C5])
 
     """ Creating Subnetworks """
     model_pred = _build_head_subnets(
@@ -1093,7 +1259,7 @@ def SAPD(
     ])
 
     """ Target for Subnetworks """
-    cls_target, reg_target = Target(num_cls=num_cls)(
+    cls_target, reg_target = Target_v1(num_cls=num_cls)(
         [feature_maps_shape_input, gt_boxes_input, weight, model_pred[-1]]
     )
 
@@ -1139,3 +1305,8 @@ def SAPD(
         """ Only Training """
         prediction_model = None
         return training_model, prediction_model
+
+
+if __name__ == '__main__':
+    _train, _infer = SAPD(num_cls=6)
+    _train.summary()

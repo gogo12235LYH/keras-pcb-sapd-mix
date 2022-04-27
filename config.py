@@ -9,23 +9,18 @@ _dataset_path = {
 }
 DATASET = 'DPCB'
 DATABASE_PATH = _dataset_path[DATASET]
-# DATABASE_PATH = r'../VOCdevkit/VOC2012+2007'
-# DATABASE_PATH = r'../PCB_DATASET_Random_Crop'
-# DATABASE_PATH = r'../DeepPCB_voc'
-# DATABASE_PATH = r'../MixPCB'
-# DATABASE_PATH = r'../MixPCB_MixUp_Fix'
 
 """ Hyper-parameter setting """
 MODE = 1                # MODE = 1: Stage One; MODE = 2: Stage Two; MODE = 3: Top-1 Weight; MODE = 4: Top-5 Weight.
-DB_MODE = 'tf'          # 'tf' or 'keras', it means that using tf.data or keras.util.sequence.
-EPOCHs = 10
-STEPs_PER_EPOCH = 10  # steps in one epoch
-EPOCHs_STAGE_ONE = int(EPOCHs * 0.5)
+DB_MODE = 'keras'       # 'tf' or 'keras', it means that using tf.data or keras.util.sequence.
+EPOCHs = 25
 BATCH_SIZE = 2          # Global Batch size
-NUM_CLS = 6
-PHI = 0                 # B0:(512, 512), B1:(640, 640), B2:(768, 768), B3:(896, 896), B4:(1024, 1024) ~ B7(1048, 1048)
+STEPs_PER_EPOCH = None  # DPCB(1000), VOC(16551)
+EPOCHs_STAGE_ONE = int(EPOCHs * 0.5)
+NUM_CLS = 20
+PHI = 1                 # B0:(512, 512), B1:(640, 640), B2:(768, 768), B3:(896, 896), B4:(1024, 1024) ~ B7(1048, 1048)
 MULTI_GPU = 0
-
+MIXED_PRECISION = 1
 EPOCHs_STAGE_TWO = 12
 LRF_MAX_LR = 1e-2
 LRF_MIN_LR = 1e-8
@@ -82,13 +77,6 @@ HEAD_ALIGN_B = 0.0      # Align Layer bias of centerness fusion. Default = 0.
 HEAD_WS = 0             # '1' with WS, '0' without WS
 HEAD_GROUPS = 16        # In GroupNormalization's setting
 SUBNET_DEPTH = 4        # Depth of Head Subnetworks
-
-
-""" Neck: Feature Pyramid Network """
-FPN = None
-FPN_DEPTH = 1
-FPN_BN = 0
-# TODO : FPN, FPG,...
 
 
 """ Neck: Feature Selection Network """

@@ -1,6 +1,7 @@
 import config
 import tensorflow as tf
 import tensorflow.keras as keras
+from tensorflow.keras import mixed_precision
 from tensorflow.python.keras.utils.data_utils import get_file
 from generators.voc import PascalVocGenerator
 from preprocess.color_aug import VisualEffect
@@ -184,20 +185,18 @@ def model_compile(info, model_name, optimizer):
     load_weights(input_model=model_, model_name=model_name)
 
     print(f"{info} Model Compiling... ")
-    model_.compile(
-        optimizer=optimizer,
-        # loss=model_loss(
-        #     cls='cls_loss',
-        #     reg='reg_loss',
-        #     fsn='feature_select_loss'
-        # )
-    )
+    model_.compile(optimizer=optimizer)
     return model_, pred_model_
 
 
 def main():
     print("[INFO] Initializing... ")
     _init()
+
+    if config.MIXED_PRECISION:
+        print("[INFO] Using Mixed Precision... ")
+        policy = mixed_precision.Policy('mixed_float16')
+        mixed_precision.set_global_policy(policy)
 
     stage = f"[INFO] Stage {config.MODE} :"
 
@@ -221,8 +220,12 @@ def main():
 
     """ Multi GPU Accelerating"""
     if config.MULTI_GPU:
+        # For Linux
         # mirrored_strategy = tf.distribute.MirroredStrategy()
+
+        # For Windows
         mirrored_strategy = tf.distribute.MirroredStrategy(cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
+
         with mirrored_strategy.scope():
             model, pred_model = model_compile(stage, config.NAME, Optimizer)
     else:

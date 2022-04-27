@@ -76,6 +76,25 @@ def shrink_and_normalize_boxes(boxes, width, height, stride, shrink_ratio=0.2, k
     return x1, y1, x2, y2
 
 
+@tf.function
+def create_reg_positive_sample(bboxes, x1, y1, x2, y2, stride):
+    shift_xx = (tf.cast(tf.range(x1, x2), dtype=tf.float32) + 0.5) * stride
+    shift_yy = (tf.cast(tf.range(y1, y2), dtype=tf.float32) + 0.5) * stride
+    shift_xx, shift_yy = tf.meshgrid(shift_xx, shift_yy)
+    shifts = tf.stack((shift_xx, shift_yy), axis=-1)
+
+    lef = tf.maximum(shifts[..., 0] - bboxes[0], 0)
+    top = tf.maximum(shifts[..., 1] - bboxes[1], 0)
+    rit = tf.maximum(bboxes[2] - shifts[..., 0], 0)
+    bot = tf.maximum(bboxes[3] - shifts[..., 1], 0)
+
+    reg_target = tf.stack((lef, top, rit, bot), axis=-1) / 4.0 / stride
+    anchor_pots = tf.minimum(lef, rit) * tf.minimum(top, bot) / tf.maximum(lef, rit) / tf.maximum(top, bot)
+    area = (lef + rit) * (top + bot)
+
+    return reg_target, anchor_pots, area
+
+
 def trim_zero_padding_boxes(boxes):
     """
     :param boxes: (Max_Boxes, 4)

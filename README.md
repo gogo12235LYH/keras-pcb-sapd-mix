@@ -230,6 +230,7 @@ if __name__ == '__main__':
 * 訓練及評估影像大小: 640 * 640 ( PHI=1 )
 * Mix_v2: 輸入採用 1*1 的 kernel size，融合後與 1*1 kernel size 的 conv2d 強化學習效果。
 * Align: 使用位置計算 centerness 並與 1*1 kernel size 強化學習效果。
+* 使用混合精度與tf.data優化資料預處理輸入，減少約 30% 訓練時間。 
 
 似乎 Align 對於 小目標瑕疵 及 Binary影像 效果非常顯著。
 

@@ -958,7 +958,7 @@ class Target_v1(keras.layers.Layer):
         self.num_cls = num_cls,
         self.strides = strides,
         self.shrink_ratio = shrink_ratio
-        super(Target_v2, self).__init__(dtype='float32', **kwargs)
+        super(Target_v1, self).__init__(dtype='float32', **kwargs)
 
     def call(self, inputs, **kwargs):
         # (Batch, 5, 2)
@@ -1001,7 +1001,7 @@ class Target_v1(keras.layers.Layer):
         return outputs
 
     def get_config(self):
-        c = super(Target_v2, self).get_config()
+        c = super(Target_v1, self).get_config()
         c.update({
             'num_cls': self.num_cls,
             'strides': self.strides,

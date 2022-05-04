@@ -503,7 +503,6 @@ def _compute_targets(image, bboxes, classes, fmap_shapes):
             # (fh, fw)
             _area = tf.pad(_area, neg_pad, constant_values=1e7)
 
-            # ToDO: cls, loc, area, ap_weight, mask
             return _cls_target, _loc_target, _area
 
         # cls_target : shape = (anchor-points, fh, fw, cls_num + 2)
@@ -588,10 +587,10 @@ def create_pipeline(phi=0, mode="ResNetV1", db="DPCB", batch_size=1):
         fmap_shapes=feature_maps_shapes
     ), num_parallel_calls=autotune)
 
-    train = train.shuffle(train.__len__())
+    train = train.shuffle(1000).repeat()
     train = train.padded_batch(batch_size=batch_size, padding_values=(0.0, 0.0, 0, 0), drop_remainder=True)
     train = train.map(inputs_targets, num_parallel_calls=autotune)
-    train = train.repeat().prefetch(autotune)
+    train = train.prefetch(autotune)
     return train, test
 
 
@@ -735,7 +734,6 @@ class PipeLine:
                 image, bboxes = random_flip_horizontal(image, image_shape, bboxes, prob=0.5)
 
             if self.color_aug:
-                # TODO: Needs to implement
                 pass
 
             return image, bboxes, classes
